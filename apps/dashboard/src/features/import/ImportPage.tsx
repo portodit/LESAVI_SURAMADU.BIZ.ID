@@ -37,19 +37,37 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 function extractDateFromFilename(source: string): { display: string; isoDate: string; period: string } | null {
-  const match = source.match(/[_-](\d{8})[._?&\s]/);
-  if (!match) return null;
-  const raw = match[1];
-  const year = raw.slice(0, 4);
-  const month = raw.slice(4, 6);
-  const day = raw.slice(6, 8);
-  const y = parseInt(year), mo = parseInt(month), d = parseInt(day);
-  if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
-  return {
-    isoDate: `${year}-${month}-${day}`,
-    period: `${year}-${month}`,
-    display: `${day}/${month}/${year}`,
-  };
+  // Pattern 1: underscore or hyphen before date: PERFORMANSI_RLEGS_20260607.xlsx, TREG3_ACTIVITY_20260316.xlsx
+  const match1 = source.match(/[_-](\d{8})[._?&\s]/);
+  if (match1) {
+    const raw = match1[1];
+    const year = raw.slice(0, 4);
+    const month = raw.slice(4, 6);
+    const day = raw.slice(6, 8);
+    const y = parseInt(year), mo = parseInt(month), d = parseInt(day);
+    if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    return {
+      isoDate: `${year}-${month}-${day}`,
+      period: `${year}-${month}`,
+      display: `${day}/${month}/${year}`,
+    };
+  }
+  // Pattern 2: parentheses around date: PERFORMANSI RLEGS 2026 (20260607).xlsx
+  const match2 = source.match(/\((\d{8})\)/);
+  if (match2) {
+    const raw = match2[1];
+    const year = raw.slice(0, 4);
+    const month = raw.slice(4, 6);
+    const day = raw.slice(6, 8);
+    const y = parseInt(year), mo = parseInt(month), d = parseInt(day);
+    if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    return {
+      isoDate: `${year}-${month}-${day}`,
+      period: `${year}-${month}`,
+      display: `${day}/${month}/${year}`,
+    };
+  }
+  return null;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -78,6 +96,37 @@ async function readSheetNames(file: File): Promise<string[]> {
       }
     };
     reader.onerror = () => resolve([]);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * Detect if an Excel file uses pivot cache format (data stored in pivotCache XML, not flat sheets).
+ * Returns true if pivotCacheDefinition files are found inside the ZIP.
+ */
+async function isPivotCacheFile(file: File): Promise<boolean> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = e.target?.result as ArrayBuffer;
+        const uint8 = new Uint8Array(data);
+        // Check for ZIP signature (PK)
+        if (uint8[0] !== 0x50 || uint8[1] !== 0x4B) {
+          resolve(false);
+          return;
+        }
+        // Read ZIP to check for pivotCacheDefinition
+        const JSZip = require("jszip");
+        JSZip.loadAsync(data).then(zip => {
+          const pivotFiles = Object.keys(zip.files).filter(k => k.includes("pivotCacheDefinition"));
+          resolve(pivotFiles.length > 0);
+        }).catch(() => resolve(false));
+      } catch {
+        resolve(false);
+      }
+    };
+    reader.onerror = () => resolve(false);
     reader.readAsArrayBuffer(file);
   });
 }
@@ -558,6 +607,22 @@ export default function ImportData() {
   const applyFile = useCallback(async (file: File) => {
     const sheets = await readSheetNames(file);
     if (sheets.length > 1) {
+      // Check if this is a pivot cache file (data stored in pivotCache XML, not flat sheets)
+      const pivot = await isPivotCacheFile(file);
+      if (pivot) {
+        // For pivot cache files, auto-select "Perf. AM" if available (contains AM attribution)
+        const perfAmSheet = sheets.find(s => s.toLowerCase().includes("perf") && s.toLowerCase().includes("am"));
+        if (perfAmSheet) {
+          commitFile(file, perfAmSheet);
+          return;
+        }
+        // Fallback: first sheet that looks like a data sheet (not "KUADRAN" or "NIPNAS")
+        const dataSheet = sheets.find(s => !s.toLowerCase().includes("kuadran") && !s.toLowerCase().includes("nipnas"));
+        if (dataSheet) {
+          commitFile(file, dataSheet);
+          return;
+        }
+      }
       setSheetPicker({ file, sheets });
     } else {
       commitFile(file, sheets[0] || "");
