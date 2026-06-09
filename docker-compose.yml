@@ -1,19 +1,14 @@
 services:
-  db:
+  postgres:
     image: postgres:17-alpine
+    container_name: lesavi_postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: lesavi
+      POSTGRES_USER: lesavi
+      POSTGRES_PASSWORD: lesavi123
+      POSTGRES_DB: lesavi_db
     ports:
       - "5432:5432"
     volumes:
-      - lesavi_db:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
+      - lesavi_pgdata:/var/lib/postgresql/data
 volumes:
-  lesavi_db:
+  lesavi_pgdata:

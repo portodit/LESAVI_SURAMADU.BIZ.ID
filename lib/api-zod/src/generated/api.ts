@@ -143,10 +143,7 @@ export const ListImportHistoryResponseItem = zod.object({
   type: zod.string(),
   rowsImported: zod.number(),
   period: zod.string(),
-<<<<<<< HEAD
-=======
   snapshotDate: zod.string().nullable().optional(),
->>>>>>> origin/master
   createdAt: zod.string(),
   autoTelegramSent: zod.boolean(),
 });
