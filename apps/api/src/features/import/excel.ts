@@ -243,6 +243,8 @@ export interface CleanedFunnelRow {
   monthSubs: number | null;
   namaAm: string;
   nikAm: string;
+  nikHandling: string | null;
+  namaPembuatLop: string | null;
   reportDate: string;
   createdDate: string;
   tahunAnggaran: number | null;
@@ -352,6 +354,8 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
                 : null,
       namaAm,
       nikAm,
+      nikHandling: clean(r.nik_handling),
+      namaPembuatLop: clean(r.nama_pembuat_lop),
       reportDate,
       createdDate: parseDate(r.created_date) || clean(r.created_date),
       tahunAnggaran,
@@ -482,9 +486,212 @@ export function cleanActivityRows(rows: ParsedRow[]): CleanedActivityRow[] {
         picRole: clean(r.pic_role),
         picPhone: clean(r.pic_phone),
         activityNotes: clean(r.activity_notes),
-      } as CleanedActivityRow;
+      };
     })
-    .filter((r): r is CleanedActivityRow => r !== null);
+    .filter((row): row is CleanedActivityRow => row !== null);
+}
+
+// ── Pivot Cache Excel Parser ───────────────────────────────────────────────────
+// Parses .xlsx files that store data as pivot cache (pivotCacheDefinition{N}.xml
+// + pivotCacheRecords{N}.xml) instead of flat sheets.
+//
+// Format: each <r> element in pivotCacheRecords is a row, each <x> is a shared-item
+// index, each <n> is a numeric value, each <s> is an inline string, <m/> is null.
+//
+// Cache 1 = Perf. AM (36 fields, per-AM × per-pelanggan, NIK+NAMA_AM present)
+// Cache 2 = Perf. CC (31 fields, per-CC tanpa AM attribution)
+
+interface CacheField {
+  name: string;
+  sharedItems: string[] | null; // null = numeric field
+}
+
+interface ParsedCache {
+  fields: CacheField[];
+  records: Record<string, any>[];
+  recordCount: number;
+}
+
+const PIVOT_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+/** Extract all child element values from a pivot cache record element */
+function parseRecordCells(recordElem: Element, fieldCount: number, sharedMaps: (string[] | null)[]): Record<string, any> {
+  const row: Record<string, any> = {};
+  const children = Array.from(recordElem.children);
+  for (let vi = 0; vi < Math.min(children.length, fieldCount); vi++) {
+    const child = children[vi];
+    const tag = child.tag.split("}")[1] ?? child.tag;
+    if (tag === "x") {
+      const idx = parseInt(child.getAttribute("v") ?? "0", 10);
+      const sm = sharedMaps[vi];
+      row[vi] = sm && idx < sm.length ? sm[idx] : null;
+    } else if (tag === "n") {
+      row[vi] = parseFloat(child.getAttribute("v") ?? "0");
+    } else if (tag === "s") {
+      row[vi] = child.getAttribute("v") ?? "";
+    } else if (tag === "m") {
+      row[vi] = null; // null/missing
+    } else {
+      row[vi] = null;
+    }
+  }
+  return row;
+}
+
+/**
+ * Parse a pivot cache from an xlsx buffer.
+ * Returns field metadata and flat row objects (indexed by field position, use fields[] to map).
+ *
+ * Cache selection:
+ * - cacheIndex 1 = first pivot cache (in PERFORMANSI RLEGS = Perf. CC, 31 fields, no AM)
+ * - cacheIndex 2 = second pivot cache (in PERFORMANSI RLEGS = Perf. AM, 36 fields, with AM)
+ */
+export async function parsePivotCache(buffer: Buffer, cacheIndex: 1 | 2 = 2): Promise<ParsedCache> {
+  const zip = await JSZip.loadAsync(buffer as unknown as NodeJS.ReadableStreamParameter);
+  const zipFiles: Record<string, string> = {};
+  await Promise.all(
+    Object.keys(zip.files).map(async (name) => {
+      zipFiles[name] = await zip.files[name].async("string");
+    })
+  );
+
+  // Find pivot cache definition file
+  const defPattern = `xl/pivotCache/pivotCacheDefinition${cacheIndex}.xml`;
+  const defContent = zipFiles[defPattern];
+  if (!defContent) {
+    // Try alternative path patterns
+    const altPatterns = [
+      `xl/pivotCache/pivotCacheDefinition${cacheIndex}.xml`,
+      `xl/worksheets/pivotCacheDefinition${cacheIndex}.xml`,
+    ];
+    throw new Error(`Pivot cache ${cacheIndex} tidak ditemukan dalam file. Available: ${Object.keys(zipFiles).filter(k => k.includes('pivot') || k.includes('cache')).join(', ')}`);
+  }
+
+  // Parse definition XML using regex (faster, no external parser needed)
+  const fieldMatches: CacheField[] = [];
+
+  // Extract all cacheField blocks
+  const cacheFieldRegex = /<cacheField[^>]*name="([^"]+)"[^>]*>([\s\S]*?)<\/cacheField>/g;
+  let match: RegExpExecArray | null;
+  while ((match = cacheFieldRegex.exec(defContent)) !== null) {
+    const fieldName = match[1];
+    const fieldContent = match[2];
+    const siMatch = /<sharedItems[^>]*count="(\d+)"[^>]*>([\s\S]*?)<\/sharedItems>/.exec(fieldContent);
+    if (siMatch) {
+      const sItems = Array.from(fieldContent.matchAll(/<s[^>]*v="([^"]+)"/g)).map(m => m[1]);
+      fieldMatches.push({ name: fieldName, sharedItems: sItems });
+    } else {
+      fieldMatches.push({ name: fieldName, sharedItems: null });
+    }
+  }
+
+  // Fallback: parse with DOMParser if regex missed anything
+  if (fieldMatches.length === 0) {
+    const { DOMParser } = await import("@xmldom/xmldom" as string);
+    const doc = new DOMParser().parseFromString(defContent, "text/xml");
+    const ns = PIVOT_NS;
+    const cacheFields = doc.getElementsByTagName("cacheField");
+    for (let i = 0; i < cacheFields.length; i++) {
+      const cf = cacheFields[i] as Element;
+      const name = cf.getAttribute("name") ?? `field_${i}`;
+      const sharedEl = cf.getElementsByTagName("sharedItems")[0] as Element | undefined;
+      if (sharedEl) {
+        const sItems: string[] = [];
+        const sEls = sharedEl.getElementsByTagName("s");
+        for (let j = 0; j < sEls.length; j++) sItems.push((sEls[j] as Element).getAttribute("v") ?? "");
+        fieldMatches.push({ name, sharedItems: sItems });
+      } else {
+        fieldMatches.push({ name, sharedItems: null });
+      }
+    }
+  }
+
+  // Build shared maps for fast lookup
+  const sharedMaps = fieldMatches.map(f => f.sharedItems);
+
+  // Parse records
+  const recFile = `xl/pivotCache/pivotCacheRecords${cacheIndex}.xml`;
+  const recContent = zipFiles[recFile];
+  if (!recContent) throw new Error(`Pivot cache records ${cacheIndex} tidak ditemukan`);
+
+  // Extract recordCount from records XML
+  const countMatch = /count="(\d+)"/.exec(recContent.substring(0, 500));
+  const totalRecords = countMatch ? parseInt(countMatch[1], 10) : 0;
+
+  // Parse records via DOMParser (simpler than regex for nested XML)
+  const { DOMParser } = await import("@xmldom/xmldom" as string);
+  const recDoc = new DOMParser().parseFromString(recContent, "text/xml");
+  const ns = PIVOT_NS;
+  const recordElems = recDoc.getElementsByTagName("r");
+
+  const records: Record<string, any>[] = [];
+  const fieldCount = fieldMatches.length;
+
+  for (let ri = 0; ri < recordElems.length; ri++) {
+    const rec = recordElems[ri] as Element;
+    const children = Array.from(rec.children);
+    const row: Record<string, any> = {};
+    for (let vi = 0; vi < Math.min(children.length, fieldCount); vi++) {
+      const child = children[vi] as Element;
+      const tag = child.tagName; // without ns prefix
+      if (tag === "x") {
+        const idx = parseInt(child.getAttribute("v") ?? "0", 10);
+        const sm = sharedMaps[vi];
+        row[fieldMatches[vi].name] = sm && idx < sm.length ? sm[idx] : null;
+      } else if (tag === "n") {
+        row[fieldMatches[vi].name] = parseFloat(child.getAttribute("v") ?? "0");
+      } else if (tag === "s") {
+        row[fieldMatches[vi].name] = child.getAttribute("v") ?? "";
+      } else if (tag === "m") {
+        row[fieldMatches[vi].name] = null;
+      } else {
+        row[fieldMatches[vi].name] = null;
+      }
+    }
+    records.push(row);
+  }
+
+  return { fields: fieldMatches, records, recordCount: totalRecords };
+}
+
+/**
+ * Detect if an xlsx buffer is a pivot-cache-format file (vs flat sheet).
+ * Returns { isPivot: true, cacheCount: N } or { isPivot: false }.
+ */
+export async function detectExcelFormat(buffer: Buffer): Promise<{ isPivot: boolean; cacheCount: number }> {
+  const zip = await JSZip.loadAsync(buffer as unknown as NodeJS.ReadableStreamParameter);
+  const pivotFiles = Object.keys(zip.files).filter(k => k.includes("pivotCacheDefinition"));
+  if (pivotFiles.length > 0) {
+    return { isPivot: true, cacheCount: pivotFiles.length };
+  }
+  return { isPivot: false, cacheCount: 0 };
+}
+
+/** Export pivot cache parsed rows to a clean flat Excel file (xlsx) */
+export function exportPivotCacheToXlsx(cache: ParsedCache, sheetName?: string): Buffer {
+  // Build header + data rows
+  const headers = cache.fields.map(f => f.name);
+  const dataRows = cache.records.map(rec =>
+    headers.map(h => rec[h] ?? null)
+  );
+
+  const wsData = [headers, ...dataRows];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName ?? "Pivot Cache Export");
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+}
+
+/** Convert parsed pivot cache rows to the same ParsedRow format used by existing import logic */
+export function pivotCacheRowsToParsedRows(cache: ParsedCache): ParsedRow[] {
+  return cache.records.map(rec => {
+    const row: ParsedRow = {};
+    for (const field of cache.fields) {
+      const val = rec[field.name];
+      row[field.name] = val ?? null;
+    }
+    return row;
+  });
 }
 
 // ── Detect whether a Buffer is pivot-cache format ─────────────────────────────

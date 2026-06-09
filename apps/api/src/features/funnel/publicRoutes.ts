@@ -41,6 +41,7 @@ router.get("/public/funnel/snapshots", async (req, res): Promise<void> => {
 });
 
 router.get("/public/funnel", async (req, res): Promise<void> => {
+  console.log("MARKER_FOR_DEVEL_PUBLIC_FUNNEL");
   Object.entries(PUBLIC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 
 <<<<<<< HEAD
@@ -50,17 +51,36 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
 >>>>>>> origin/master
 
   const masterAms = await db.select().from(accountManagersTable);
-  const masterAmByNik = new Map(masterAms.map(m => [m.nik, m.nama]));
-  const activeNikSet = new Set(masterAms.filter(m => m.aktif && m.role === "AM" && m.nik).map(m => m.nik));
+  const masterAmByNik = new Map();
+  masterAms.forEach(m => {
+    if (m.nik) masterAmByNik.set(String(m.nik).trim(), m.nama);
+  });
 
-  let allLops = await db.select().from(salesFunnelTable);
+  const activeNikSet = new Set(masterAms.filter(m => m.aktif && m.role === "AM" && m.nik).map(m => String(m.nik).trim()));
 
-  allLops = allLops.map(l => {
-    const isUnresolved = !l.namaAm || l.namaAm === "" || /^\d+$/.test(l.namaAm.trim());
-    if (isUnresolved && l.nikAm && masterAmByNik.has(l.nikAm)) {
-      return { ...l, namaAm: masterAmByNik.get(l.nikAm) || l.namaAm };
+  let allLopsRaw = await db.select().from(salesFunnelTable);
+
+  let allLops = allLopsRaw.map(l => {
+    const d = { ...l };
+    // 1. Resolve namaAm if it's a NIK or empty
+    const amNik = String(d.nikAm || "").trim();
+    if (masterAmByNik.has(amNik)) {
+      d.namaAm = masterAmByNik.get(amNik);
     }
-    return l;
+
+    // 2. Resolve namaPembuatLop
+    const pembuatRaw = String(d.namaPembuatLop || "").trim();
+    const isNikPembuat = /^\d+$/.test(pembuatRaw);
+
+    if (isNikPembuat && masterAmByNik.has(pembuatRaw)) {
+      d.namaPembuatLop = masterAmByNik.get(pembuatRaw);
+    } else if (!d.namaPembuatLop || d.namaPembuatLop === "" || isNikPembuat) {
+      if (amNik && masterAmByNik.has(amNik)) {
+        d.namaPembuatLop = masterAmByNik.get(amNik);
+      }
+    }
+
+    return d;
   });
 
   if (import_id) allLops = allLops.filter(l => l.importId === Number(import_id));
@@ -138,7 +158,13 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
   else if (durasi_filter === "multi_year") allLops = allLops.filter(l => l.monthSubs != null && l.monthSubs > 12);
 
   // Only include LOPs from registered AMs (role=AM, aktif=true) — same rule as activity/performance visualizations
-  allLops = allLops.filter(l => l.nikAm && activeNikSet.has(l.nikAm));
+  allLops = allLops.filter(l => {
+    if (!l.nikAm) return false;
+    const handlingNiks = (l.nikHandling || "").split(",").map(n => n.trim()).filter(Boolean);
+    const isHandling = handlingNiks.some(n => activeNikSet.has(n));
+    const isOwner = activeNikSet.has(l.nikAm);
+    return isHandling || isOwner;
+  });
 
   const totalLop = allLops.length;
   const totalNilai = allLops.reduce((s, l) => s + (l.nilaiProyek || 0), 0);
@@ -161,23 +187,38 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
     }, {})
   ).map(([, v]) => v);
 
-  const masterLops = namedLops.filter(l => l.nikAm && activeNikSet.has(l.nikAm));
-  const amGroups = Object.entries(
-    masterLops.reduce((acc: any, l) => {
-      const key = l.nikAm || l.namaAm || "Unknown";
-      if (!acc[key]) acc[key] = {
-        namaAm: l.namaAm || "", nik: l.nikAm || "", divisi: l.divisi || "",
-        totalLop: 0, totalNilai: 0, shortage: 0, statusMap: {}
-      };
-      acc[key].totalLop++;
-      acc[key].totalNilai += l.nilaiProyek || 0;
-      const s = l.statusF || "Unknown";
-      if (!acc[key].statusMap[s]) acc[key].statusMap[s] = { status: s, count: 0, totalNilai: 0 };
-      acc[key].statusMap[s].count++;
-      acc[key].statusMap[s].totalNilai += l.nilaiProyek || 0;
-      return acc;
-    }, {})
-  ).map(([, v]: any) => ({
+  const masterLops = namedLops.filter(l => {
+      const handlingNiks = (l.nikHandling || "").split(",").map(n => n.trim()).filter(Boolean);
+      return handlingNiks.some(n => activeNikSet.has(n)) || (l.nikAm && activeNikSet.has(l.nikAm));
+  });
+
+  const amGroupsMap: Record<string, any> = {};
+  for (const l of masterLops) {
+      const handlingNiks = (l.nikHandling || "").split(",").map(n => n.trim()).filter(Boolean);
+      const targets = handlingNiks.length > 0 ? handlingNiks.filter(n => activeNikSet.has(n)) : [l.nikAm].filter(n => n && activeNikSet.has(n));
+      for (const nik of targets) {
+          if (!amGroupsMap[nik]) {
+              amGroupsMap[nik] = {
+                  namaAm: masterAmByNik.get(nik) || nik,
+                  nik: nik,
+                  divisi: l.divisi || "",
+                  totalLop: 0,
+                  totalNilai: 0,
+                  shortage: 0,
+                  statusMap: {}
+              };
+          }
+          const group = amGroupsMap[nik];
+          group.totalLop++;
+          group.totalNilai += l.nilaiProyek || 0;
+          const s = l.statusF || "Unknown";
+          if (!group.statusMap[s]) group.statusMap[s] = { status: s, count: 0, totalNilai: 0 };
+          group.statusMap[s].count++;
+          group.statusMap[s].totalNilai += l.nilaiProyek || 0;
+      }
+  }
+
+  const amGroups = Object.values(amGroupsMap).map((v: any) => ({
     namaAm: v.namaAm, nik: v.nik, divisi: v.divisi,
     totalLop: v.totalLop, totalNilai: v.totalNilai, shortage: 0,
     byStatus: Object.values(v.statusMap),
@@ -250,6 +291,8 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
   const amTargets: Record<string, { id: number; targetValue: number; targetValueDss: number | null; targetValueDps: number | null; tahun: number }> = {};
   for (const r of amTargetRows) amTargets[r.nikAm] = { id: r.id, targetValue: r.targetValue, targetValueDss: r.targetValueDss ?? null, targetValueDps: r.targetValueDps ?? null, tahun: r.tahun };
 
+  console.log("DEBUG FIRST LOP:", allLops[0]);
+
   res.json({
     totalLop, totalNilai, totalEstRev,
 >>>>>>> origin/master
@@ -291,6 +334,8 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
       monthSubs: l.monthSubs ?? null,
       namaAm: l.namaAm,
       nikAm: l.nikAm,
+      nikHandling: l.nikHandling,
+      namaPembuatLop: l.namaPembuatLop,
       reportDate: l.reportDate,
       tahunAnggaran: l.tahunAnggaran,
     })),
