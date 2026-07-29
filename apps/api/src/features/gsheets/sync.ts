@@ -1,5 +1,5 @@
 import {
-  db, appSettingsTable, dataImportsTable,
+  db, pool, appSettingsTable, dataImportsTable,
   salesFunnelTable, salesActivityTable, performanceDataTable,
   accountManagersTable,
 } from "@workspace/db";
@@ -331,9 +331,46 @@ async function importActivitySheet(
 
     const BATCH = 200;
     for (let i = 0; i < cleaned.length; i += BATCH) {
-      await db.insert(salesActivityTable).values(
-        cleaned.slice(i, i + BATCH).map(row => ({ ...row, snapshotDate: date, importId: imp.id }))
-      );
+      const batch = cleaned.slice(i, i + BATCH);
+
+      const nik_arr = batch.map(r => r.nik);
+      const fullname_arr = batch.map(r => r.fullname || null);
+      const divisi_arr = batch.map(r => r.divisi || null);
+      const segmen_arr = batch.map(r => r.segmen || null);
+      const regional_arr = batch.map(r => r.regional || null);
+      const witel_arr = batch.map(r => r.witel || null);
+      const nipnas_arr = batch.map(r => r.nipnas || null);
+      const caName_arr = batch.map(r => r.caName || null);
+      const activityType_arr = batch.map(r => r.activityType || null);
+      const label_arr = batch.map(r => r.label || null);
+      const lopid_arr = batch.map(r => r.lopid || null);
+      const createdat_arr = batch.map(r => r.createdatActivity || null);
+      const startDate_arr = batch.map(r => r.activityStartDate || null);
+      const endDate_arr = batch.map(r => r.activityEndDate || null);
+      const picName_arr = batch.map(r => r.picName || null);
+      const picJobtitle_arr = batch.map(r => r.picJobtitle || null);
+      const picRole_arr = batch.map(r => r.picRole || null);
+      const picPhone_arr = batch.map(r => r.picPhone || null);
+      const notes_arr = batch.map(r => r.activityNotes || null);
+      const snap_arr = batch.map(() => date || null);
+      const imp_arr = batch.map(() => imp.id);
+
+      await pool.query(`
+        INSERT INTO sales_activity
+          (nik,fullname,divisi,segmen,regional,witel,nipnas,ca_name,activity_type,label,lopid,
+           createdat_activity,activity_start_date,activity_end_date,pic_name,pic_jobtitle,
+           pic_role,pic_phone,activity_notes,snapshot_date,import_id)
+        SELECT * FROM UNNEST(
+          $1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],
+          $8::text[],$9::text[],$10::text[],$11::text[],$12::text[],$13::text[],$14::text[],
+          $15::text[],$16::text[],$17::text[],$18::text[],$19::text[],$20::text[],$21::integer[]
+        ) AS t(nik,fullname,divisi,segmen,regional,witel,nipnas,ca_name,activity_type,label,lopid,
+                 createdat_activity,activity_start_date,activity_end_date,pic_name,pic_jobtitle,
+                 pic_role,pic_phone,activity_notes,snapshot_date,import_id)
+      `, [nik_arr, fullname_arr, divisi_arr, segmen_arr, regional_arr, witel_arr, nipnas_arr,
+          caName_arr, activityType_arr, label_arr, lopid_arr, createdat_arr, startDate_arr,
+          endDate_arr, picName_arr, picJobtitle_arr, picRole_arr, picPhone_arr, notes_arr,
+          snap_arr, imp_arr]);
     }
 
     return { sheetName: sheet.title, date, period, type: "activity", status: "imported", rowsImported: cleaned.length, message: `${cleaned.length} baris berhasil diimport dari ${rows.length} baris mentah` };
