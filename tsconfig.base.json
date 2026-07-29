@@ -8,7 +8,11 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": false,
     "noImplicitReturns": true,
+<<<<<<< HEAD
     "noUnusedLocals": true,
+=======
+    "noUnusedLocals": false,
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     "noImplicitAny": true,
     "noImplicitThis": true,
     "strictNullChecks": true,

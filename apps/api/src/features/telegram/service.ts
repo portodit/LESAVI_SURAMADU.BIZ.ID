@@ -93,6 +93,7 @@ function rankFeedback(firstName: string, rankCm: number, achCm: number): string 
 }
 
 function getEmbedUrl(): string {
+<<<<<<< HEAD
   const domain = process.env.PUBLIC_DOMAIN ?? process.env.PUBLIC_DOMAIN_FALLBACK ?? "lesavi-suramadu.biz.id";
   return `https://${domain}/presentation`;
 }
@@ -100,6 +101,17 @@ function getEmbedUrl(): string {
 function getFunnelDetailUrl(): string {
   const domain = process.env.PUBLIC_DOMAIN ?? process.env.PUBLIC_DOMAIN_FALLBACK ?? "lesavi-suramadu.biz.id";
   return `https://${domain}/visualisasi/funnel`;
+=======
+  const domain = process.env.REPLIT_DEV_DOMAIN;
+  if (domain) return `https://${domain}/presentation`;
+  return `https://rlegs-suramadu.replit.app/presentation`;
+}
+
+function getFunnelDetailUrl(): string {
+  const domain = process.env.REPLIT_DEV_DOMAIN;
+  if (domain) return `https://${domain}/visualisasi/funnel`;
+  return `https://rlegs-suramadu.replit.app/visualisasi/funnel`;
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 }
 
 // ── Funnel helpers ──────────────────────────────────────────────────────────

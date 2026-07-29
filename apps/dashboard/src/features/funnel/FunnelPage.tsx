@@ -385,7 +385,11 @@ function PeriodeTreeDropdown({ label, filterYears, filterMonths, availableYears,
 // ─── SVG Gauge ───────────────────────────────────────────────────────────────
 
 function Gauge({ pct, targetHo, targetFullHo, real, mode, divisi }: { pct: number; targetHo: number; targetFullHo: number; real: number; mode: "ho" | "fullho"; divisi?: "DPS" | "DSS" }) {
+<<<<<<< HEAD
   const clamp = Number.isFinite(pct) ? Math.min(Math.max(pct, 0), 100) : 0;
+=======
+  const clamp = Math.min(Math.max(pct, 0), 100);
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   const r = 54, cx = 80, cy = 70;
   const startAngle = -210, endAngle = 30;
   const totalDeg = endAngle - startAngle;
@@ -419,7 +423,11 @@ function Gauge({ pct, targetHo, targetFullHo, real, mode, divisi }: { pct: numbe
         {hasTarget ? (
           <>
             <text x={cx} y={cy - 4} textAnchor="middle" fontSize="22" fontWeight="800" fill={color} fontFamily="ui-monospace, monospace">
+<<<<<<< HEAD
               {typeof clamp==="number"&&!isNaN(clamp)?clamp.toFixed(1):"0"}%
+=======
+              {clamp.toFixed(1)}%
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
             </text>
             <text x={cx} y={cy + 12} textAnchor="middle" fontSize="9" fill="#6b7280">CAPAIAN</text>
           </>
@@ -636,6 +644,19 @@ export default function FunnelPage() {
 
   const snapshotOptions = useMemo(() =>
     [...snapshots]
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+      .sort((a, b) => b.id - a.id)
+=======
+      .sort((a, b) => {
+        // Prioritize snapshotDate, fall back to createdAt, then id
+        const da = a.snapshotDate || a.createdAt || "";
+        const db = b.snapshotDate || b.createdAt || "";
+        return db.localeCompare(da);
+      })
+>>>>>>> origin/master
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       .map(s => ({
         value: String(s.id),
         label: s.snapshotDate
@@ -984,8 +1005,13 @@ export default function FunnelPage() {
               const amTargetInfo = data?.amTargets?.[am.nikAm];
               const amTargetVal = amTargetInfo?.targetValue ?? 0;
               const amTargetYr = data?.amTargetYear ?? new Date().getFullYear();
+<<<<<<< HEAD
   const pctRaw = amTargetVal>0 && amTotal!=null ? (amTotal/amTargetVal)*100 : 0;
   const pctBar = Number.isFinite(pctRaw) ? Math.min(Math.max(pctRaw, 0), 100) : 0;
+=======
+              const pctRaw = amTargetVal>0 ? (amTotal/amTargetVal)*100 : 0;
+              const pctBar = Math.min(pctRaw, 100);
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
               const barColor = pctRaw>=100?"#10b981":pctRaw>=70?"#f97316":"#3b82f6";
               return (<>
                 {/* LOP count */}
@@ -1017,7 +1043,11 @@ export default function FunnelPage() {
                         <div className="h-full rounded-full transition-all" style={{width:`${pctBar}%`,background:barColor}} />
                       </div>
                       <div className="flex items-center gap-1 mt-0.5">
+<<<<<<< HEAD
                         <span className="text-sm font-black tabular-nums" style={{color:barColor}}>{typeof pctRaw==="number"&&!isNaN(pctRaw)?pctRaw.toFixed(0):"0"}%</span>
+=======
+                        <span className="text-sm font-black tabular-nums" style={{color:barColor}}>{pctRaw.toFixed(0)}%</span>
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                         <span className="text-xs font-bold text-muted-foreground">capaian</span>
                       </div>
                     </div>
@@ -1028,7 +1058,11 @@ export default function FunnelPage() {
                   {cr!==null ? (
                     <div className="relative inline-block group">
                       <span className={cn("font-bold text-sm tabular-nums cursor-help underline decoration-dotted decoration-1 underline-offset-2", cr>=0.7?"text-emerald-600":"text-red-600")}>
+<<<<<<< HEAD
                         {typeof cr==="number"&&!isNaN(cr)?(cr*100).toFixed(1):"0"}%
+=======
+                        {(cr*100).toFixed(1)}%
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                       </span>
                       {/* Tooltip */}
                       <div className="absolute right-0 bottom-full mb-2 z-[60] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150"
@@ -1047,7 +1081,11 @@ export default function FunnelPage() {
                             <div className="border-t border-border pt-1.5 flex items-center justify-between gap-4">
                               <span className="text-xs text-muted-foreground whitespace-nowrap">CR = F5 ÷ (F3+F4+F5)</span>
                               <span className={cn("text-xs font-black tabular-nums whitespace-nowrap", cr>=0.7?"text-emerald-600":"text-red-600")}>
+<<<<<<< HEAD
                                 = {typeof cr==="number"&&!isNaN(cr)?(cr*100).toFixed(1):"0"}%
+=======
+                                = {(cr*100).toFixed(1)}%
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                               </span>
                             </div>
                           </div>
@@ -1210,8 +1248,13 @@ export default function FunnelPage() {
   const dssTgtFullHo = tbd["DSS"]?.targetFullHo || 0;
   const dpsTgt = filterTarget === "ho" ? dpsTgtHo : dpsTgtFullHo;
   const dssTgt = filterTarget === "ho" ? dssTgtHo : dssTgtFullHo;
+<<<<<<< HEAD
   const dpsPct = dpsTgt && dpsStats.totalNilai != null ? (dpsStats.totalNilai / dpsTgt) * 100 : 0;
   const dssPct = dssTgt && dssStats.totalNilai != null ? (dssStats.totalNilai / dssTgt) * 100 : 0;
+=======
+  const dpsPct = dpsTgt ? (dpsStats.totalNilai / dpsTgt) * 100 : 0;
+  const dssPct = dssTgt ? (dssStats.totalNilai / dssTgt) * 100 : 0;
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   const isLesa = filterDivisi === "LESA" || filterDivisi === "all";
 
   return (

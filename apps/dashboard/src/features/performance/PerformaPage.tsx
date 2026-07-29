@@ -47,7 +47,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <p className="font-bold mb-2 text-foreground leading-snug">{titlePrefix}{titleMonth}</p>
       {payload.map((p: any, i: number) => (
         <p key={i} style={{ color: p.color }} className="mb-1 font-semibold">
+<<<<<<< HEAD
           {p.name}: {p.name === "Ach Rate %" ? `${typeof p.value==='number'&&!isNaN(p.value)?p.value.toFixed(2):'0'}%` : formatRupiah(p.value || 0)}
+=======
+          {p.name}: {p.name === "Ach Rate %" ? `${p.value?.toFixed(2)}%` : formatRupiah(p.value || 0)}
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
         </p>
       ))}
     </div>
@@ -356,11 +360,26 @@ export default function PerformaVis() {
   const { data: importHistory } = useListImportHistory();
 
   // Performance imports (for snapshot dropdown)
+<<<<<<< HEAD
   const perfImports = useMemo(() => {
     if (!importHistory) return [];
     if (Array.isArray(importHistory)) return importHistory;
     return importHistory.data || [];
   }, [importHistory]);
+=======
+  const perfImports = useMemo(() =>
+<<<<<<< HEAD
+    ((importHistory || []) as any[]).filter(i => i.type === "performance").sort((a, b) => b.id - a.id),
+=======
+    ((importHistory || []) as any[]).filter(i => i.type === "performance").sort((a, b) => {
+      const da = a.snapshotDate || a.period || a.createdAt || "";
+      const db = b.snapshotDate || b.period || b.createdAt || "";
+      return db.localeCompare(da);
+    }),
+>>>>>>> origin/master
+    [importHistory]
+  );
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 
   // Auto-select most recent snapshot when import history loads
   useEffectRef(() => {
@@ -373,9 +392,13 @@ export default function PerformaVis() {
   const availablePeriodes = useMemo(() => {
     if (!allPerfs?.length) return [];
     let rows = allPerfs as any[];
+<<<<<<< HEAD
     // Only filter by importId if snapshot is explicitly selected (not null)
     // When importId is null in DB, show all data regardless of snapshot filter
     if (filterSnapshotId !== null) rows = rows.filter(p => p.importId === filterSnapshotId);
+=======
+    if (filterSnapshotId) rows = rows.filter(p => p.importId === filterSnapshotId);
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     return [...new Set(rows.map(p => `${p.tahun}-${String(p.bulan).padStart(2, "0")}`))]
       .sort();
   }, [allPerfs, filterSnapshotId]);
@@ -384,7 +407,11 @@ export default function PerformaVis() {
   const periodesWithData = useMemo(() => {
     if (!allPerfs?.length) return new Set<string>();
     let rows = allPerfs as any[];
+<<<<<<< HEAD
     if (filterSnapshotId !== null) rows = rows.filter(p => p.importId === filterSnapshotId);
+=======
+    if (filterSnapshotId) rows = rows.filter(p => p.importId === filterSnapshotId);
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     return new Set(
       rows
         .filter(p => (p.realRevenue ?? 0) > 0)
@@ -851,7 +878,11 @@ export default function PerformaVis() {
               title="Top AM by Current Month"
               period={cmPeriode ? periodeLabel(cmPeriode) : "—"}
               am={topCm}
+<<<<<<< HEAD
               value={topCm && typeof topCm.cmAch==="number"&&!isNaN(topCm.cmAch)?`${(topCm.cmAch*100).toFixed(1).replace(".",",")}%`:"–"}
+=======
+              value={topCm ? `${(topCm.cmAch * 100).toFixed(1).replace(".", ",")}%` : "–"}
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
               realValue={topCm ? formatRupiah(topCm.cmReal) : "–"}
               targetValue={topCm ? formatRupiah(topCm.cmTarget) : "–"}
             />
@@ -862,7 +893,11 @@ export default function PerformaVis() {
               title="Top AM by Year to Date"
               period={filterPeriodes.size > 1 ? `${filterPeriodes.size} Periode` : cmPeriode ? periodeLabel(cmPeriode) : "—"}
               am={topYtd}
+<<<<<<< HEAD
               value={topYtd && typeof topYtd.ytdAch==="number"&&!isNaN(topYtd.ytdAch)?`${(topYtd.ytdAch*100).toFixed(1).replace(".",",")}%`:"–"}
+=======
+              value={topYtd ? `${(topYtd.ytdAch * 100).toFixed(1).replace(".", ",")}%` : "–"}
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
               realValue={topYtd ? formatRupiah(topYtd.ytdReal) : "–"}
               targetValue={topYtd ? formatRupiah(topYtd.ytdTarget) : "–"}
             />
@@ -1064,10 +1099,17 @@ export default function PerformaVis() {
                             <td className="px-4 py-2.5 text-right font-bold text-foreground tabular-nums whitespace-nowrap" style={isExpanded?{backgroundColor:"hsl(var(--card))"}:{}}>{formatRupiahFull(row.ytdTarget)}</td>
                             <td className="px-4 py-2.5 text-right font-black text-foreground tabular-nums whitespace-nowrap" style={isExpanded?{backgroundColor:"hsl(var(--card))"}:{}}>{formatRupiahFull(row.ytdReal)}</td>
                             {showCmCol && <td className={cn("px-3 py-2.5 text-right font-black tabular-nums", row.cmAch >= 1 ? "text-green-600" : row.cmAch >= 0.8 ? "text-orange-500" : "text-red-600")} style={isExpanded?{backgroundColor:"hsl(var(--card))"}:{}}>
+<<<<<<< HEAD
                               {typeof row.cmAch==="number"&&!isNaN(row.cmAch)?(row.cmAch*100).toFixed(1).replace(".",","):"0"}%
                             </td>}
                             {showYtdCol && <td className={cn("px-3 py-2.5 text-right font-black tabular-nums", row.ytdAch >= 1 ? "text-green-600" : row.ytdAch >= 0.8 ? "text-blue-600" : "text-red-600")} style={isExpanded?{backgroundColor:"hsl(var(--card))"}:{}}>
                               {typeof row.ytdAch==="number"&&!isNaN(row.ytdAch)?(row.ytdAch*100).toFixed(1).replace(".",","):"0"}%
+=======
+                              {(row.cmAch * 100).toFixed(1).replace(".", ",")}%
+                            </td>}
+                            {showYtdCol && <td className={cn("px-3 py-2.5 text-right font-black tabular-nums", row.ytdAch >= 1 ? "text-green-600" : row.ytdAch >= 0.8 ? "text-blue-600" : "text-red-600")} style={isExpanded?{backgroundColor:"hsl(var(--card))"}:{}}>
+                              {(row.ytdAch * 100).toFixed(1).replace(".", ",")}%
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                             </td>}
                             <td className="px-3 py-2.5 text-center font-black text-foreground" style={isExpanded?{backgroundColor:"hsl(var(--card))"}:{}}>{visibleCustomers.length}</td>
                             <td className="px-3 py-2.5 text-center font-black text-foreground" style={isExpanded?{backgroundColor:"hsl(var(--card))"}:{}}>{row.displayRank}</td>
@@ -1142,14 +1184,22 @@ export default function PerformaVis() {
                                                 <div className="w-12 h-1.5 bg-secondary rounded-full overflow-hidden">
                                                   <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(prop, 100)}%` }} />
                                                 </div>
+<<<<<<< HEAD
                                                 <span className="text-foreground font-medium">{typeof prop==="number"&&!isNaN(prop)?prop.toFixed(1):"0"}%</span>
+=======
+                                                <span className="text-foreground font-medium">{prop.toFixed(1)}%</span>
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                                               </div>
                                             </td>
                                             <td className="px-3 py-1.5 text-right tabular-nums text-foreground">{formatRupiahFull(cTarget)}</td>
                                             <td className="px-3 py-1.5 text-right tabular-nums font-medium text-foreground">{formatRupiahFull(cReal)}</td>
                                             <td className="px-3 py-1.5 text-right tabular-nums text-xs">
                                               <span className={cn("font-semibold", cAch >= 100 ? "text-green-600" : cAch >= 80 ? "text-orange-500" : "text-red-500")}>
+<<<<<<< HEAD
                                                 {typeof cAch==="number"&&!isNaN(cAch)?cAch.toFixed(1):"0"}%
+=======
+                                                {cAch.toFixed(1)}%
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                                               </span>
                                             </td>
                                           </tr>
@@ -1172,11 +1222,19 @@ export default function PerformaVis() {
                       <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground font-semibold text-sm whitespace-nowrap">{formatRupiah(totals.ytdTarget)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-foreground font-bold text-sm whitespace-nowrap">{formatRupiah(totals.ytdReal)}</td>
                       {showCmCol && <td className={cn("px-3 py-2.5 text-right tabular-nums", totals.cmAch >= 100 ? "text-green-600" : totals.cmAch >= 80 ? "text-orange-500" : "text-red-600")}>
+<<<<<<< HEAD
                         <div className="font-black text-sm">{typeof totals.cmAch==="number"&&!isNaN(totals.cmAch)?totals.cmAch.toFixed(1).replace(".",","):"0"}%</div>
                         <div className="text-[10px] font-semibold mt-0.5">{totals.cmAch >= 100 ? "Melebihi Target" : totals.cmAch >= 80 ? "Mendekati" : "Di Bawah Target"}</div>
                       </td>}
                       {showYtdCol && <td className={cn("px-3 py-2.5 text-right tabular-nums", totals.ytdAch >= 100 ? "text-green-600" : totals.ytdAch >= 80 ? "text-blue-600" : "text-red-500")}>
                         <div className="font-black text-sm">{typeof totals.ytdAch==="number"&&!isNaN(totals.ytdAch)?totals.ytdAch.toFixed(1).replace(".",","):"0"}%</div>
+=======
+                        <div className="font-black text-sm">{totals.cmAch.toFixed(1).replace(".", ",")}%</div>
+                        <div className="text-[10px] font-semibold mt-0.5">{totals.cmAch >= 100 ? "Melebihi Target" : totals.cmAch >= 80 ? "Mendekati" : "Di Bawah Target"}</div>
+                      </td>}
+                      {showYtdCol && <td className={cn("px-3 py-2.5 text-right tabular-nums", totals.ytdAch >= 100 ? "text-green-600" : totals.ytdAch >= 80 ? "text-blue-600" : "text-red-500")}>
+                        <div className="font-black text-sm">{totals.ytdAch.toFixed(1).replace(".", ",")}%</div>
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                         <div className="text-[10px] font-semibold mt-0.5">{totals.ytdAch >= 100 ? "Melebihi Target" : totals.ytdAch >= 80 ? "Mendekati" : "Di Bawah Target"}</div>
                       </td>}
                       <td className="px-3 py-2.5 text-center tabular-nums text-foreground font-semibold text-sm">
@@ -1204,7 +1262,11 @@ export default function PerformaVis() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                 <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10 }}
+<<<<<<< HEAD
                   tickFormatter={v => typeof v==="number"&&!isNaN(v)?(v>=1e9?`Rp${(v/1e9).toFixed(0)}M`:v>=1e6?`Rp${(v/1e6).toFixed(0)}Jt`:"0"):"0"}
+=======
+                  tickFormatter={v => v >= 1e9 ? `Rp${(v/1e9).toFixed(0)}M` : v >= 1e6 ? `Rp${(v/1e6).toFixed(0)}Jt` : "0"}
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                 />
                 <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} domain={[0, 200]} />
                 <Tooltip content={<CustomTooltip />} />

@@ -16,7 +16,11 @@
   },
   "references": [
     {
+<<<<<<< HEAD
       "path": "../../packages/api-client-react"
+=======
+      "path": "../../lib/api-client-react"
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     }
   ]
 }

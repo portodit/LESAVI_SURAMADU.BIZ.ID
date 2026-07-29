@@ -1,11 +1,18 @@
 {
+<<<<<<< HEAD
   "name": "@workspace/lesavi",
+=======
+  "name": "workspace",
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   "version": "0.0.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "preinstall": "node -e \"const fs=require('fs');['package-lock.json','yarn.lock'].forEach(f=>{if(fs.existsSync(f))fs.unlinkSync(f)});const ua=process.env.npm_config_user_agent||'';if(ua&&!ua.startsWith('pnpm/')){console.error('Use pnpm instead');process.exit(1)}\"",
+<<<<<<< HEAD
     "clean": "pnpm run --filter @workspace/api-server clean && pnpm run --filter @workspace/dashboard clean",
+=======
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./apps/**\" --filter \"./packages/**\" --filter \"./scripts\" --if-present run typecheck"
@@ -13,6 +20,7 @@
   "private": true,
   "devDependencies": {
     "@esbuild/win32-x64": "0.27.3",
+<<<<<<< HEAD
     "@replit/vite-plugin-cartographer": "catalog:",
     "@replit/vite-plugin-dev-banner": "catalog:",
     "@replit/vite-plugin-runtime-error-modal": "catalog:",
@@ -82,5 +90,17 @@
     "wouter": "^3.10.0",
     "xlsx": "^0.18.5",
     "zod": "catalog:"
+=======
+    "@rollup/rollup-win32-x64-msvc": "^4.60.2",
+    "lightningcss": "^1.32.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "@tailwindcss/oxide-win32-x64-msvc": "^4.2.4",
+    "lightningcss-win32-x64-msvc": "^1.32.0",
+    "pg": "^8.20.0"
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   }
 }

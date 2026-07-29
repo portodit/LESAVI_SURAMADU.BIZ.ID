@@ -3,7 +3,11 @@
  * dan scheduler.ts (otomatis).
  * Tidak ada dependency ke Express di sini.
  */
+<<<<<<< HEAD
 import { db, pool, appSettingsTable, dataImportsTable, accountManagersTable, performanceDataTable, salesFunnelTable, salesActivityTable, masterCustomerTable } from "@workspace/db";
+=======
+import { db, appSettingsTable, dataImportsTable, accountManagersTable, performanceDataTable, salesFunnelTable, salesActivityTable, masterCustomerTable } from "@workspace/db";
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 import { and, sql, eq } from "drizzle-orm";
 import {
   parseExcelBuffer, parseRaw2DArray, getWorkbookSheetNames,
@@ -91,10 +95,15 @@ async function downloadGoogleSheetRows(
     sheetTitle = allTitles[0] ?? "Sheet1";
   }
 
+<<<<<<< HEAD
   // SERIAL_NUMBER: return Excel serial numbers for date cells so we can convert to full datetime
   // (FORMATTED_STRING only returns "YYYY-MM-DD" without time, losing activity timestamps)
   const valRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTitle)}?key=${apiKey}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`
+=======
+  const valRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTitle)}?key=${apiKey}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   );
   if (!valRes.ok) {
     const body = await valRes.text().catch(() => "");
@@ -364,6 +373,7 @@ export async function importActivity(rows: ParsedRow[], sourceUrl: string, perio
 
   const [importRecord] = await db.insert(dataImportsTable).values({
     type: "activity", sourceUrl, period: period || new Date().toISOString().slice(0, 7),
+<<<<<<< HEAD
     rowsImported: 0, snapshotDate,
   }).returning();
 
@@ -414,6 +424,17 @@ export async function importActivity(rows: ParsedRow[], sourceUrl: string, perio
   await db.update(dataImportsTable).set({ rowsImported: count }).where(eq(dataImportsTable.id, importRecord.id));
 
   return { imported: count, importId: importRecord.id, period: period || new Date().toISOString().slice(0, 7) };
+=======
+    rowsImported: cleaned.length, snapshotDate,
+  }).returning();
+
+  for (let i = 0; i < cleaned.length; i += 200) {
+    await db.insert(salesActivityTable).values(cleaned.slice(i, i + 200).map(row => ({
+      ...row, snapshotDate, importId: importRecord.id,
+    }))).onConflictDoNothing();
+  }
+  return { imported: cleaned.length, importId: importRecord.id, period: period || new Date().toISOString().slice(0, 7) };
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 }
 
 /** Top-level: download + import for a given type+fileId — used by scheduler */

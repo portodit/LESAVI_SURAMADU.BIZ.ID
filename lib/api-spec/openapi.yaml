@@ -1,0 +1,1097 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: RLEGS AM Monitoring & Bot Telegram API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: am
+    description: Account Manager management
+  - name: import
+    description: Data import
+  - name: performance
+    description: Performance data
+  - name: funnel
+    description: Sales funnel data
+  - name: activity
+    description: Sales activity data
+  - name: telegram
+    description: Telegram bot operations
+  - name: settings
+    description: System settings
+  - name: public
+    description: Public AM view
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /am:
+    get:
+      operationId: listAccountManagers
+      tags: [am]
+      summary: List all account managers
+      responses:
+        "200":
+          description: List of AMs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccountManager"
+    post:
+      operationId: createAccountManager
+      tags: [am]
+      summary: Create account manager
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountManagerBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountManager"
+
+  /am/{id}:
+    get:
+      operationId: getAccountManager
+      tags: [am]
+      summary: Get account manager by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Account manager
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountManager"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateAccountManager
+      tags: [am]
+      summary: Update account manager
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountManagerBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountManager"
+    delete:
+      operationId: deleteAccountManager
+      tags: [am]
+      summary: Delete account manager
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /import/history:
+    get:
+      operationId: listImportHistory
+      tags: [import]
+      summary: List import history
+      responses:
+        "200":
+          description: Import history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ImportRecord"
+
+  /import/performance:
+    post:
+      operationId: importPerformance
+      tags: [import]
+      summary: Import performance data from Excel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportUrlBody"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+
+  /import/funnel:
+    post:
+      operationId: importFunnel
+      tags: [import]
+      summary: Import sales funnel data from Excel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportUrlBody"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+
+  /import/activity:
+    post:
+      operationId: importActivity
+      tags: [import]
+      summary: Import sales activity data from Excel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportUrlBody"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+
+  /performance:
+    get:
+      operationId: listPerformance
+      tags: [performance]
+      summary: Get performance data for all AMs
+      parameters:
+        - name: year
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: month
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: divisi
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Performance data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PerformanceSummary"
+
+  /performance/{nik}:
+    get:
+      operationId: getPerformanceByNik
+      tags: [performance]
+      summary: Get performance data for specific AM
+      parameters:
+        - name: nik
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: month
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Performance data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PerformanceDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /funnel:
+    get:
+      operationId: listFunnel
+      tags: [funnel]
+      summary: Get funnel summary for all AMs
+      parameters:
+        - name: year
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: month
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: divisi
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: status
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: nama_am
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Funnel data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FunnelOverview"
+
+  /funnel/{nik}:
+    get:
+      operationId: getFunnelByNik
+      tags: [funnel]
+      summary: Get funnel data for specific AM
+      parameters:
+        - name: nik
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: month
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Funnel data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FunnelDetail"
+
+  /activity:
+    get:
+      operationId: listActivity
+      tags: [activity]
+      summary: Get activity data for all AMs
+      parameters:
+        - name: year
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: month
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: divisi
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: nama_am
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: label
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Activity data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityOverview"
+
+  /activity/{nik}:
+    get:
+      operationId: getActivityByNik
+      tags: [activity]
+      summary: Get activity data for specific AM
+      parameters:
+        - name: nik
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: month
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Activity data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityDetail"
+
+  /telegram/send:
+    post:
+      operationId: sendTelegram
+      tags: [telegram]
+      summary: Send Telegram message to AMs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTelegramBody"
+      responses:
+        "200":
+          description: Send result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelegramSendResult"
+
+  /telegram/logs:
+    get:
+      operationId: getTelegramLogs
+      tags: [telegram]
+      summary: Get Telegram send logs
+      responses:
+        "200":
+          description: Logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TelegramLog"
+
+  /telegram/register-code:
+    post:
+      operationId: generateTelegramCode
+      tags: [telegram]
+      summary: Generate Telegram registration code for an AM
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateTelegramCodeBody"
+      responses:
+        "200":
+          description: Code generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelegramCodeResponse"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get system settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update system settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsBody"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+  /public/am/{slug}:
+    get:
+      operationId: getPublicAmProfile
+      tags: [public]
+      summary: Get public AM profile (requires NIK verification)
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nik
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: AM profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAmProfile"
+        "401":
+          description: Invalid NIK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: AM not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    SuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required: [email, password]
+
+    AuthResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        role:
+          type: string
+      required: [id, email, role]
+
+    AccountManager:
+      type: object
+      properties:
+        id:
+          type: integer
+        nik:
+          type: string
+        nama:
+          type: string
+        slug:
+          type: string
+        divisi:
+          type: string
+        segmen:
+          type: ["string", "null"]
+        witel:
+          type: string
+        telegramChatId:
+          type: ["string", "null"]
+        telegramConnected:
+          type: boolean
+        kpiActivity:
+          type: integer
+        createdAt:
+          type: string
+      required: [id, nik, nama, slug, divisi, witel, telegramConnected, kpiActivity, createdAt]
+
+    CreateAccountManagerBody:
+      type: object
+      properties:
+        nik:
+          type: string
+        nama:
+          type: string
+        divisi:
+          type: string
+        segmen:
+          type: ["string", "null"]
+        witel:
+          type: string
+        telegramChatId:
+          type: ["string", "null"]
+        kpiActivity:
+          type: integer
+      required: [nik, nama, divisi, witel]
+
+    UpdateAccountManagerBody:
+      type: object
+      properties:
+        nama:
+          type: ["string", "null"]
+        divisi:
+          type: ["string", "null"]
+        segmen:
+          type: ["string", "null"]
+        witel:
+          type: ["string", "null"]
+        telegramChatId:
+          type: ["string", "null"]
+        kpiActivity:
+          type: ["integer", "null"]
+
+    ImportUrlBody:
+      type: object
+      properties:
+        url:
+          type: ["string", "null"]
+        period:
+          type: ["string", "null"]
+      required: []
+
+    ImportResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        rowsImported:
+          type: integer
+        amCount:
+          type: integer
+        period:
+          type: string
+        message:
+          type: string
+        importId:
+          type: integer
+      required: [success, rowsImported, amCount, period, message, importId]
+
+    ImportRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        rowsImported:
+          type: integer
+        period:
+          type: string
+        createdAt:
+          type: string
+        autoTelegramSent:
+          type: boolean
+      required: [id, type, rowsImported, period, createdAt, autoTelegramSent]
+
+    PerformanceSummary:
+      type: object
+      properties:
+        nik:
+          type: string
+        namaAm:
+          type: string
+        divisi:
+          type: string
+        tahun:
+          type: integer
+        bulan:
+          type: integer
+        targetRevenue:
+          type: number
+        realRevenue:
+          type: number
+        achRate:
+          type: number
+        achRateYtd:
+          type: number
+        rankAch:
+          type: integer
+        statusWarna:
+          type: string
+        komponenDetail:
+          type: ["string", "null"]
+      required: [nik, namaAm, divisi, tahun, bulan, targetRevenue, realRevenue, achRate, achRateYtd, rankAch, statusWarna]
+
+    PerformanceDetail:
+      type: object
+      properties:
+        nik:
+          type: string
+        namaAm:
+          type: string
+        divisi:
+          type: string
+        summaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/PerformanceSummary"
+      required: [nik, namaAm, divisi, summaries]
+
+    FunnelLop:
+      type: object
+      properties:
+        lopid:
+          type: string
+        judulProyek:
+          type: string
+        pelanggan:
+          type: string
+        nilaiProyek:
+          type: number
+        divisi:
+          type: string
+        statusF:
+          type: string
+        statusProyek:
+          type: ["string", "null"]
+        kategoriKontrak:
+          type: ["string", "null"]
+        estimateBulan:
+          type: ["string", "null"]
+        namaAm:
+          type: string
+        reportDate:
+          type: string
+      required: [lopid, judulProyek, pelanggan, nilaiProyek, divisi, statusF, namaAm, reportDate]
+
+    FunnelOverview:
+      type: object
+      properties:
+        totalLop:
+          type: integer
+        totalNilai:
+          type: number
+        targetFullHo:
+          type: number
+        realFullHo:
+          type: number
+        shortage:
+          type: number
+        cutoffDate:
+          type: ["string", "null"]
+        byStatus:
+          type: array
+          items:
+            $ref: "#/components/schemas/FunnelStatusGroup"
+        byAm:
+          type: array
+          items:
+            $ref: "#/components/schemas/FunnelAmGroup"
+        lops:
+          type: array
+          items:
+            $ref: "#/components/schemas/FunnelLop"
+      required: [totalLop, totalNilai, targetFullHo, realFullHo, shortage, byStatus, byAm, lops]
+
+    FunnelStatusGroup:
+      type: object
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+        totalNilai:
+          type: number
+      required: [status, count, totalNilai]
+
+    FunnelAmGroup:
+      type: object
+      properties:
+        namaAm:
+          type: string
+        nik:
+          type: string
+        divisi:
+          type: string
+        totalLop:
+          type: integer
+        totalNilai:
+          type: number
+        shortage:
+          type: number
+        byStatus:
+          type: array
+          items:
+            $ref: "#/components/schemas/FunnelStatusGroup"
+      required: [namaAm, nik, divisi, totalLop, totalNilai, shortage, byStatus]
+
+    FunnelDetail:
+      type: object
+      properties:
+        nik:
+          type: string
+        namaAm:
+          type: string
+        divisi:
+          type: string
+        totalLop:
+          type: integer
+        totalNilai:
+          type: number
+        shortage:
+          type: number
+        lops:
+          type: array
+          items:
+            $ref: "#/components/schemas/FunnelLop"
+      required: [nik, namaAm, divisi, totalLop, totalNilai, shortage, lops]
+
+    ActivityItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        nik:
+          type: string
+        fullname:
+          type: string
+        divisi:
+          type: string
+        activityEndDate:
+          type: string
+        label:
+          type: string
+        activityType:
+          type: ["string", "null"]
+        caName:
+          type: ["string", "null"]
+        lopid:
+          type: ["string", "null"]
+        picName:
+          type: ["string", "null"]
+        activityNotes:
+          type: ["string", "null"]
+      required: [id, nik, fullname, divisi, activityEndDate, label]
+
+    ActivityOverview:
+      type: object
+      properties:
+        totalActivity:
+          type: integer
+        byAm:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityAmGroup"
+        activities:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityItem"
+      required: [totalActivity, byAm, activities]
+
+    ActivityAmGroup:
+      type: object
+      properties:
+        nik:
+          type: string
+        fullname:
+          type: string
+        divisi:
+          type: string
+        activityCount:
+          type: integer
+        kpiTarget:
+          type: integer
+        kpiAchieved:
+          type: boolean
+        byLabel:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityLabelGroup"
+      required: [nik, fullname, divisi, activityCount, kpiTarget, kpiAchieved, byLabel]
+
+    ActivityLabelGroup:
+      type: object
+      properties:
+        label:
+          type: string
+        count:
+          type: integer
+      required: [label, count]
+
+    ActivityDetail:
+      type: object
+      properties:
+        nik:
+          type: string
+        fullname:
+          type: string
+        divisi:
+          type: string
+        activityCount:
+          type: integer
+        kpiTarget:
+          type: integer
+        activities:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityItem"
+      required: [nik, fullname, divisi, activityCount, kpiTarget, activities]
+
+    SendTelegramBody:
+      type: object
+      properties:
+        targetNiks:
+          type: ["array", "null"]
+          items:
+            type: string
+        period:
+          type: string
+        includePerformance:
+          type: boolean
+        includeFunnel:
+          type: boolean
+        includeActivity:
+          type: boolean
+        customMessage:
+          type: ["string", "null"]
+      required: [period, includePerformance, includeFunnel, includeActivity]
+
+    TelegramSendResult:
+      type: object
+      properties:
+        sent:
+          type: integer
+        failed:
+          type: integer
+        skipped:
+          type: integer
+        details:
+          type: array
+          items:
+            $ref: "#/components/schemas/TelegramSendDetail"
+      required: [sent, failed, skipped, details]
+
+    TelegramSendDetail:
+      type: object
+      properties:
+        nik:
+          type: string
+        namaAm:
+          type: string
+        status:
+          type: string
+        error:
+          type: ["string", "null"]
+      required: [nik, namaAm, status]
+
+    TelegramLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        nik:
+          type: string
+        namaAm:
+          type: string
+        status:
+          type: string
+        period:
+          type: string
+        messageType:
+          type: string
+        error:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required: [id, nik, namaAm, status, period, messageType, createdAt]
+
+    GenerateTelegramCodeBody:
+      type: object
+      properties:
+        amId:
+          type: integer
+      required: [amId]
+
+    TelegramCodeResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        expiresAt:
+          type: string
+      required: [code, expiresAt]
+
+    Settings:
+      type: object
+      properties:
+        telegramBotToken:
+          type: ["string", "null"]
+        sharepointPerformanceUrl:
+          type: ["string", "null"]
+        sharepointFunnelUrl:
+          type: ["string", "null"]
+        sharepointActivityUrl:
+          type: ["string", "null"]
+        autoSendOnImport:
+          type: boolean
+        kpiActivityDefault:
+          type: integer
+      required: [autoSendOnImport, kpiActivityDefault]
+
+    UpdateSettingsBody:
+      type: object
+      properties:
+        telegramBotToken:
+          type: ["string", "null"]
+        sharepointPerformanceUrl:
+          type: ["string", "null"]
+        sharepointFunnelUrl:
+          type: ["string", "null"]
+        sharepointActivityUrl:
+          type: ["string", "null"]
+        autoSendOnImport:
+          type: ["boolean", "null"]
+        kpiActivityDefault:
+          type: ["integer", "null"]
+
+    PublicAmProfile:
+      type: object
+      properties:
+        nik:
+          type: string
+        nama:
+          type: string
+        slug:
+          type: string
+        divisi:
+          type: string
+        witel:
+          type: string
+        performance:
+          $ref: "#/components/schemas/PerformanceSummary"
+        funnel:
+          $ref: "#/components/schemas/FunnelDetail"
+        activity:
+          $ref: "#/components/schemas/ActivityDetail"
+      required: [nik, nama, slug, divisi, witel]

@@ -1,5 +1,9 @@
 import {
+<<<<<<< HEAD
   db, pool, appSettingsTable, dataImportsTable,
+=======
+  db, appSettingsTable, dataImportsTable,
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   salesFunnelTable, salesActivityTable, performanceDataTable,
   accountManagersTable,
 } from "@workspace/db";
@@ -331,6 +335,7 @@ async function importActivitySheet(
 
     const BATCH = 200;
     for (let i = 0; i < cleaned.length; i += BATCH) {
+<<<<<<< HEAD
       const batch = cleaned.slice(i, i + BATCH);
 
       const nik_arr = batch.map(r => r.nik);
@@ -371,6 +376,11 @@ async function importActivitySheet(
           caName_arr, activityType_arr, label_arr, lopid_arr, createdat_arr, startDate_arr,
           endDate_arr, picName_arr, picJobtitle_arr, picRole_arr, picPhone_arr, notes_arr,
           snap_arr, imp_arr]);
+=======
+      await db.insert(salesActivityTable).values(
+        cleaned.slice(i, i + BATCH).map(row => ({ ...row, snapshotDate: date, importId: imp.id }))
+      );
+>>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     }
 
     return { sheetName: sheet.title, date, period, type: "activity", status: "imported", rowsImported: cleaned.length, message: `${cleaned.length} baris berhasil diimport dari ${rows.length} baris mentah` };
