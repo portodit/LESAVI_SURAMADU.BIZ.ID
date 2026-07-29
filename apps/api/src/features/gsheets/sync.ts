@@ -367,6 +367,7 @@ async function importActivitySheet(
         ) AS t(nik,fullname,divisi,segmen,regional,witel,nipnas,ca_name,activity_type,label,lopid,
                  createdat_activity,activity_start_date,activity_end_date,pic_name,pic_jobtitle,
                  pic_role,pic_phone,activity_notes,snapshot_date,import_id)
+        ON CONFLICT (nik, createdat_activity) DO NOTHING
       `, [nik_arr, fullname_arr, divisi_arr, segmen_arr, regional_arr, witel_arr, nipnas_arr,
           caName_arr, activityType_arr, label_arr, lopid_arr, createdat_arr, startDate_arr,
           endDate_arr, picName_arr, picJobtitle_arr, picRole_arr, picPhone_arr, notes_arr,
