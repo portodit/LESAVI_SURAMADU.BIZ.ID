@@ -900,4 +900,39 @@ router.delete("/import/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ success: true, message: `Import #${id} (${imp.type}) dan ${imp.rowsImported} baris datanya berhasil dihapus` });
 });
 
+// ── PATCH /api/import/:importId/rows/:rowId ────────────────────────────────────
+router.patch("/import/:importId/rows/:rowId", requireAuth, async (req, res): Promise<void> => {
+  const importId = parseInt(req.params.importId, 10);
+  const rowId = parseInt(req.params.rowId, 10);
+  if (isNaN(importId) || isNaN(rowId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const { field, value } = req.body as { field: string; value: string };
+  if (!field || value === undefined) { res.status(400).json({ error: "field dan value wajib" }); return; }
+
+  const editableFields: Record<string, any> = {
+    nik: null, fullname: null, divisi: null, segmen: null, regional: null,
+    witel: null, nipnas: null, caName: null, activityType: null, label: null,
+    lopid: null, createdatActivity: null, activityStartDate: null,
+    activityEndDate: null, picName: null, picJobtitle: null,
+    picRole: null, picPhone: null, activityNotes: null, snapshotDate: null,
+  };
+
+  if (!(field in editableFields)) {
+    res.status(400).json({ error: "Field tidak dapat diedit" }); return;
+  }
+
+  const [existing] = await db.select({ id: salesActivityTable.id })
+    .from(salesActivityTable)
+    .where(and(eq(salesActivityTable.id, rowId), eq(salesActivityTable.importId, importId)))
+    .limit(1);
+
+  if (!existing) { res.status(404).json({ error: "Baris tidak ditemukan" }); return; }
+
+  await db.update(salesActivityTable)
+    .set({ [field]: value } as any)
+    .where(and(eq(salesActivityTable.id, rowId), eq(salesActivityTable.importId, importId)));
+
+  res.json({ success: true });
+});
+
 export default router;
