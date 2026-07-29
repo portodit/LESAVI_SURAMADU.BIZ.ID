@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: lesavi_postgres
+    environment:
+      POSTGRES_USER: lesavi
+      POSTGRES_PASSWORD: lesavi123
+      POSTGRES_DB: lesavi_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - lesavi_pgdata:/var/lib/postgresql/data
+volumes:
+  lesavi_pgdata:
