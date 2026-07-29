@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, dataImportsTable, performanceDataTable, salesFunnelTable, salesActivityTable, accountManagersTable, appSettingsTable, masterCustomerTable } from "@workspace/db";
+import { db, dataImportsTable, performanceDataTable, salesFunnelTable, salesActivityTable, accountManagersTable, appSettingsTable, masterCustomerTable, pool } from "@workspace/db";
 import { desc, eq, and, sql } from "drizzle-orm";
 import { requireAuth } from "../../shared/auth";
 import {
@@ -233,7 +233,7 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       // disimpan sebagai rekord terpisah — bukan digabung jadi satu
       const key = `${nik}__${periodeStr}__${divisiRaw.toUpperCase()}`;
 
-      // Revenue per tipe
+      // Revenue per tipe — negatif mengurangi total (e.g. AM HANDIKA), bukan dijumlah
       const tReg = parseIndonesianNumber(r.TARGET_REVENUE ?? r.target_revenue);
       const rReg = parseIndonesianNumber(r.REAL_REVENUE ?? r.real_revenue);
       const tSustain = parseIndonesianNumber(r.TARGET_SUSTAIN ?? r.target_sustain ?? 0);
@@ -243,7 +243,12 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       const tNgtma = parseIndonesianNumber(r.TARGET_NGTMA ?? r.target_ngtma ?? 0);
       const rNgtma = parseIndonesianNumber(r.REAL_NGTMA ?? r.real_ngtma ?? 0);
       const targetTotal = tReg + tSustain + tScaling + tNgtma;
-      const realTotal = rReg + rSustain + rScaling + rNgtma;
+      // Sum positives first, then subtract negatives
+      const realTotal = (
+        Math.max(0, rReg) + Math.max(0, rSustain) + Math.max(0, rScaling) + Math.max(0, rNgtma)
+      ) - (
+        Math.abs(Math.min(0, rReg)) + Math.abs(Math.min(0, rSustain)) + Math.abs(Math.min(0, rScaling)) + Math.abs(Math.min(0, rNgtma))
+      );
 
       // Customer info — semua kolom pelanggan disimpan
       const pelanggan = String(r.STANDARD_NAME || r.NAMA_PELANGGAN || r.PELANGGAN || r.pelanggan || r.nama_account || "").trim();
@@ -391,8 +396,75 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
 
   const BATCH_PERF = 200;
   for (let i = 0; i < toInsert.length; i += BATCH_PERF) {
-    const batch = toInsert.slice(i, i + BATCH_PERF).map(row => ({ ...row, importId: imp.id }));
-    await db.insert(performanceDataTable).values(batch);
+    const batch = toInsert.slice(i, i + BATCH_PERF);
+    const num = batch.length;
+
+    // Build typed arrays for UNNEST — avoids drizzle batch prepared statement type coercion issues
+    const nik_arr = batch.map(r => r.nik);
+    const namaAm_arr = batch.map(r => r.namaAm);
+    const divisi_arr = batch.map(r => r.divisi);
+    const tahun_arr = batch.map(r => r.tahun);
+    const bulan_arr = batch.map(r => r.bulan);
+    const targetRev_arr = batch.map(r => r.targetRevenue);
+    const realRev_arr = batch.map(r => r.realRevenue);
+    const tReg_arr = batch.map(r => r.targetReguler);
+    const rReg_arr = batch.map(r => r.realReguler);
+    const tSust_arr = batch.map(r => r.targetSustain);
+    const rSust_arr = batch.map(r => r.realSustain);
+    const tScal_arr = batch.map(r => r.targetScaling);
+    const rScal_arr = batch.map(r => r.realScaling);
+    const tNgt_arr = batch.map(r => r.targetNgtma);
+    const rNgt_arr = batch.map(r => r.realNgtma);
+    const achRate_arr = batch.map(r => r.achRate);
+    const achYtd_arr = batch.map(r => r.achRateYtd);
+    const rank_arr = batch.map(r => r.rankAch);
+    const status_arr = batch.map(r => r.statusWarna);
+    const snap_arr = batch.map(r => r.snapshotDate);
+    const komp_arr = batch.map(r => r.komponenDetail);
+
+    let batchOk = false;
+    try {
+      await pool.query(`
+        INSERT INTO performance_data
+          (nik, nama_am, divisi, tahun, bulan, target_revenue, real_revenue,
+           target_reguler, real_reguler, target_sustain, real_sustain,
+           target_scaling, real_scaling, target_ngtma, real_ngtma,
+           ach_rate, ach_rate_ytd, rank_ach, status_warna, snapshot_date, komponen_detail, import_id)
+        SELECT
+          nik, nama_am, divisi, tahun, bulan, target_revenue::real, real_revenue::real,
+          target_reguler::real, real_reguler::real, target_sustain::real, real_sustain::real,
+          target_scaling::real, real_scaling::real, target_ngtma::real, real_ngtma::real,
+          ach_rate::real, ach_rate_ytd::real, rank_ach::integer, status_warna, snapshot_date, komponen_detail, $1::integer
+        FROM UNNEST($2::text[], $3::text[], $4::text[], $5::integer[], $6::integer[],
+                    $7::real[], $8::real[], $9::real[], $10::real[], $11::real[], $12::real[],
+                    $13::real[], $14::real[], $15::real[], $16::real[], $17::real[], $18::real[],
+                    $19::real[], $20::real[], $21::integer[], $22::text[], $23::text[])
+        AS t(nik, nama_am, divisi, tahun, bulan, target_revenue, real_revenue,
+              target_reguler, real_reguler, target_sustain, real_sustain,
+              target_scaling, real_scaling, target_ngtma, real_ngtma,
+              ach_rate, ach_rate_ytd, rank_ach, status_warna, snapshot_date, komponen_detail)
+      `, [imp.id, nik_arr, namaAm_arr, divisi_arr, tahun_arr, bulan_arr,
+          targetRev_arr, realRev_arr, tReg_arr, rReg_arr, tSust_arr, rSust_arr,
+          tScal_arr, rScal_arr, tNgt_arr, rNgt_arr, achRate_arr, achYtd_arr,
+          rank_arr, status_arr, snap_arr, komp_arr]);
+      batchOk = true;
+    } catch (batchErr: any) {
+      // Fallback: insert one-by-one
+      for (const r of batch) {
+        await pool.query(`
+          INSERT INTO performance_data
+            (nik, nama_am, divisi, tahun, bulan, target_revenue, real_revenue,
+             target_reguler, real_reguler, target_sustain, real_sustain,
+             target_scaling, real_scaling, target_ngtma, real_ngtma,
+             ach_rate, ach_rate_ytd, rank_ach, status_warna, snapshot_date, komponen_detail, import_id)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+        `, [r.nik, r.namaAm, r.divisi, r.tahun, r.bulan,
+            r.targetRevenue, r.realRevenue,
+            r.targetReguler, r.realReguler, r.targetSustain, r.realSustain,
+            r.targetScaling, r.realScaling, r.targetNgtma, r.realNgtma,
+            r.achRate, r.achRateYtd, r.rankAch, r.statusWarna, r.snapshotDate, r.komponenDetail, imp.id]);
+      }
+    }
   }
 
   // ── AM baru: langsung masuk accounts dengan aktif=false (tidak perlu konfirmasi)
@@ -597,7 +669,7 @@ router.post("/import/activity", requireAuth, async (req, res): Promise<void> => 
 
   const [imp] = await db.insert(dataImportsTable).values({
     type: "activity",
-    rowsImported: cleaned.length,
+    rowsImported: 0,
     period: importPeriod,
     snapshotDate: snapshotDate || null,
     sourceUrl,
@@ -607,8 +679,11 @@ router.post("/import/activity", requireAuth, async (req, res): Promise<void> => 
   const BATCH_ACT = 200;
   for (let i = 0; i < cleaned.length; i += BATCH_ACT) {
     const batch = cleaned.slice(i, i + BATCH_ACT).map(row => ({ ...row, snapshotDate: snapshotDate || null, importId: imp.id }));
-    await db.insert(salesActivityTable).values(batch);
+    await db.insert(salesActivityTable).values(batch).onConflictDoNothing();
   }
+
+  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(salesActivityTable).where(eq(salesActivityTable.importId, imp.id));
+  await db.update(dataImportsTable).set({ rowsImported: count }).where(eq(dataImportsTable.id, imp.id));
 
   // ── AM baru: langsung masuk accounts dengan aktif=false
   const newActAmCount = await autoRegisterNewAms(
@@ -624,11 +699,11 @@ router.post("/import/activity", requireAuth, async (req, res): Promise<void> => 
   }
 
   res.json({
-    success: true, rowsImported: cleaned.length, amCount,
+    success: true, rowsImported: count, amCount,
     period: importPeriod, snapshotDate,
     rawCount: rows.length,
     newAmDiscovered: newActAmCount,
-    message: `${cleaned.length} dari ${rows.length} baris activity berhasil diimport${newActAmCount > 0 ? `. ${newActAmCount} AM baru ditambahkan ke Manajemen Akun (nonaktif).` : ""}`,
+    message: `${count} dari ${rows.length} baris activity berhasil diimport${newActAmCount > 0 ? `. ${newActAmCount} AM baru ditambahkan ke Manajemen Akun (nonaktif).` : ""}`,
     importId: imp.id,
   });
 });

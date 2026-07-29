@@ -2166,6 +2166,7 @@ function ActivitySlide() {
   const [expandedAm, setExpandedAm] = useState<Record<string,boolean>>({});
   const [actSearch, setActSearch] = useState("");
   const [actExpandAll, setActExpandAll] = useState<boolean|null>(null);
+  const [actSortBy, setActSortBy] = useState<"default"|"highest"|"lowest">("default");
   const actSearchRef = useRef<HTMLInputElement>(null);
 
   // Sync horizontal scroll between sticky header and scrollable body
@@ -2485,10 +2486,20 @@ function ActivitySlide() {
                   <button onClick={()=>setActExpandAll(prev=>prev===true?false:true)}
                     className="h-8 px-3 rounded-lg text-xs font-semibold border border-border bg-secondary hover:border-primary/40 hover:text-primary text-foreground transition-colors flex items-center gap-1.5">
                     {actExpandAll===true
-                      ?<><Minimize2 className="w-3 h-3"/> Collapse Semua</>
-                      :<><Expand className="w-3 h-3"/> Expand Semua</>
+                      ?<><Minimize2 className="w-3 h-3"/> Collapse</>
+                      :<><Expand className="w-3 h-3"/> Expand</>
                     }
                   </button>
+                  <div className="h-8 flex items-center gap-2 bg-background border border-border rounded-lg px-2.5 shrink-0">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Urutkan:</span>
+                    <button onClick={() => setActSortBy(actSortBy === "highest" ? "lowest" : actSortBy === "lowest" ? "default" : "highest")}
+                      className={cn(
+                        "h-6 px-2.5 rounded text-[11px] font-bold transition-colors",
+                        actSortBy === "highest" ? "bg-emerald-500 text-white" : actSortBy === "lowest" ? "bg-red-500 text-white" : "bg-secondary text-muted-foreground hover:text-foreground"
+                      )}>
+                      {actSortBy === "highest" ? "↑ Tertinggi" : actSortBy === "lowest" ? "↓ Terendah" : "Default"}
+                    </button>
+                  </div>
                 </div>
               </div>
               {/* Table header row — syncs horizontally with body */}
@@ -2514,7 +2525,12 @@ function ActivitySlide() {
 
             {amList.length===0?(
               <div className="text-center py-12 text-sm text-muted-foreground">Tidak ada data untuk filter yang dipilih.</div>
-            ):amList.map((am:any,amIdx:number)=>{
+            ):(actSortBy === "highest"
+              ? [...amList].sort((a,b) => (b.kpiCount||0) - (a.kpiCount||0))
+              : actSortBy === "lowest"
+                ? [...amList].sort((a,b) => (a.kpiCount||0) - (b.kpiCount||0))
+                : amList
+            ).map((am:any,amIdx:number)=>{
               const kpiCount=am.kpiCount||0;
               const visibleActs=am.visibleActivities||[];
               const visibleKpi=visibleActs.filter((a:any)=>a.isKpi).length;

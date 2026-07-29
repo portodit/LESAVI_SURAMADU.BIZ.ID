@@ -1,9 +1,9 @@
-import { GoogleGenAI } from "@google/genai";
+// import { GoogleGenAI } from "@google/genai"; // @google/genai not bundled - using fallback
 import { logger } from "../../shared/logger";
 
-let _ai: GoogleGenAI | null = null;
+let _ai: any = null;
 
-function getAI(): GoogleGenAI | null {
+function getAI(): any {
   if (_ai) return _ai;
   const baseUrl = process.env.AI_INTEGRATIONS_GEMINI_BASE_URL;
   const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY;

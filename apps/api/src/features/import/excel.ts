@@ -27,14 +27,17 @@ export function getWorkbookSheetNames(buffer: Buffer): string[] {
 }
 
 export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[] {
-  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: false });
+  // raw:true on workbook read is critical: without it, XLSX formats date cells to
+  // locale-aware strings ("7/24/2026") instead of preserving Date objects.
+  // cellDates:true converts date serial numbers → Date objects, raw:true preserves them.
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: true });
   const resolvedSheet = sheetName && workbook.SheetNames.includes(sheetName)
     ? sheetName
     : workbook.SheetNames[0];
   const worksheet = workbook.Sheets[resolvedSheet];
 
   // Smart parsing: detect title row (row 0 has only 1 non-null cell, rest null)
-  const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, raw: false }) as any[][];
+  const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, raw: true }) as any[][];
   if (rawRows.length < 2) return [];
 
   const row0 = rawRows[0] as any[];
@@ -51,6 +54,7 @@ export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[
         headers.forEach((h, i) => {
           if (h) {
             // Normalize header: trim, remove extra spaces, uppercase
+            // Cell values (row[i]) are preserved as-is including Date objects
             const normalized = String(h).trim().replace(/\s+/g, " ").toUpperCase();
             obj[normalized] = row[i] ?? null;
           }
@@ -59,9 +63,8 @@ export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[
       });
   }
 
-  // Normal parsing (first row is header)
-  // Use sheet_to_json then normalize all keys to uppercase
-  const rows = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: false }) as ParsedRow[];
+  // Normal parsing (first row is header) — raw:true preserves Date objects
+  const rows = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: true }) as ParsedRow[];
   return rows.map(row => {
     const normalized: ParsedRow = {};
     for (const [k, v] of Object.entries(row)) {
@@ -423,6 +426,27 @@ function parseRawDateTimeStr(val: any): string {
   }
   const s = String(val).trim();
   if (!s) return "";
+
+  // Excel serial number (e.g. 45623.52083) — dari Google Sheets SERIAL_NUMBER option
+  const num = parseFloat(s);
+  if (!isNaN(num) && num > 30000) {
+    // Excel epoch: 1899-12-30 (matches how XLSX stores dates)
+    const ms = Math.round((num - 25569) * 86400 * 1000);
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) {
+      const frac = num % 1;
+      if (frac > 0.00001) {
+        // Has fractional part → includes time component
+        const pad = (n: number) => String(n).padStart(2, "0");
+        return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+      } else {
+        // Date only (no fractional part)
+        const pad = (n: number) => String(n).padStart(2, "0");
+        return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+      }
+    }
+  }
+
   // Jika sudah dalam format datetime ISO/SQL, kembalikan apa adanya (ganti T dengan spasi)
   if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s)) return s.replace("T", " ").slice(0, 19);
   // Format US: "M/D/YYYY H:MM:SS AM/PM" (dari XLSX raw:false)
@@ -465,9 +489,10 @@ export interface CleanedActivityRow {
  * Prosedur cleaning data Sales Activity — mengikuti langkah Power Query Power BI:
  *
  * 1. Filter witel = SURAMADU (contains, case-insensitive)
- * 2. Filter divisi = "DPS" atau "DSS"
+ * 2. Filter divisi = "DPS", "DSS", atau "DGS"
  * 3. Validasi NIK numerik (Int64 — baris dengan NIK non-numerik di-skip)
- * 4. Simpan datetime penuh (termasuk jam) untuk createdat, start_date, end_date
+ * 4. Timestamp diambil dari kolom activity_end_date (tanggal aktivitas aktual, BUKAN createdat yang adalah tanggal import)
+ * 5. activity_start_date dan activity_end_date juga disimpan lengkap
  *
  * TIDAK ada filter fullname — Power BI tidak men-drop baris dengan fullname kosong.
  * TIDAK ada dedup — dedup dilakukan di DB layer via unique constraint (nik, createdat_activity).
@@ -501,7 +526,7 @@ export function cleanActivityRows(rows: ParsedRow[]): CleanedActivityRow[] {
         activityType: clean(getCol(r, "activity_type", "ACTIVITY_TYPE")),
         label: clean(getCol(r, "label", "LABEL")),
         lopid: clean(getCol(r, "lopid", "LOPID")),
-        createdatActivity: parseRawDateTimeStr(getCol(r, "createdat")),
+        createdatActivity: parseRawDateTimeStr(getCol(r, "activity_end_date", "ACTIVITY_END_DATE")),
         activityStartDate: parseRawDateTimeStr(getCol(r, "activity_start_date", "ACTIVITY_START_DATE")),
         activityEndDate: parseRawDateTimeStr(getCol(r, "activity_end_date", "ACTIVITY_END_DATE")),
         picName: clean(getCol(r, "pic_name", "PIC_NAME")),

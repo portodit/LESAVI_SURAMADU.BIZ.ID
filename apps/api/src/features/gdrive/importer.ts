@@ -91,8 +91,10 @@ async function downloadGoogleSheetRows(
     sheetTitle = allTitles[0] ?? "Sheet1";
   }
 
+  // SERIAL_NUMBER: return Excel serial numbers for date cells so we can convert to full datetime
+  // (FORMATTED_STRING only returns "YYYY-MM-DD" without time, losing activity timestamps)
   const valRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTitle)}?key=${apiKey}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTitle)}?key=${apiKey}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`
   );
   if (!valRes.ok) {
     const body = await valRes.text().catch(() => "");
@@ -362,7 +364,7 @@ export async function importActivity(rows: ParsedRow[], sourceUrl: string, perio
 
   const [importRecord] = await db.insert(dataImportsTable).values({
     type: "activity", sourceUrl, period: period || new Date().toISOString().slice(0, 7),
-    rowsImported: cleaned.length, snapshotDate,
+    rowsImported: 0, snapshotDate,
   }).returning();
 
   for (let i = 0; i < cleaned.length; i += 200) {
@@ -370,7 +372,11 @@ export async function importActivity(rows: ParsedRow[], sourceUrl: string, perio
       ...row, snapshotDate, importId: importRecord.id,
     }))).onConflictDoNothing();
   }
-  return { imported: cleaned.length, importId: importRecord.id, period: period || new Date().toISOString().slice(0, 7) };
+
+  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(salesActivityTable).where(eq(salesActivityTable.importId, importRecord.id));
+  await db.update(dataImportsTable).set({ rowsImported: count }).where(eq(dataImportsTable.id, importRecord.id));
+
+  return { imported: count, importId: importRecord.id, period: period || new Date().toISOString().slice(0, 7) };
 }
 
 /** Top-level: download + import for a given type+fileId — used by scheduler */
