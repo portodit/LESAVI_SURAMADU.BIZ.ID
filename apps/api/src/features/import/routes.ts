@@ -199,53 +199,23 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
     }).filter(r => r.nik && r.namaAm);
 
   } else if (isRawFormat) {
-    // ── RAW format: per-customer per-month rows, aggregate by NIK + PERIODE + divisi
-    // Filter: WITEL_CC = SURAMADU (customer's witel, not AM's witel)
-    // All revenue fields stored with full precision — no rounding, preserve negatives
-
-    type CustomerEntry = {
-      nip: string; pelanggan: string; proporsi: number;
-      group: string; industri: string; lsegmen: string; ssegmen: string;
-      witelCc: string; telda: string; regional: string; divisiCc: string; kawasan: string;
-      Reguler: { target: number; real: number };
-      Sustain: { target: number; real: number };
-      Scaling: { target: number; real: number };
-      NGTMA: { target: number; real: number };
-      targetTotal: number; realTotal: number;
-      // New: billing sub-components
-      revenueBase: number; revenueBillcom: number;
-      // New: achievement rates (from RAW file, raw precision)
-      aRev: number; aNgtma: number; aScaling: number; aSustain: number;
-    };
-    type AmEntry = {
-      nik: string; namaAm: string; divisi: string; witel: string; levelAm: string;
-      periodeStr: string; target: number; real: number;
-      tReg: number; rReg: number; tSustain: number; rSustain: number;
-      tScaling: number; rScaling: number; tNgtma: number; rNgtma: number;
-      // New: per-AM aggregated billing sub-components
-      revBase: number; revBillcom: number;
-      customers: CustomerEntry[];
-    };
-    const amMap = new Map<string, AmEntry>();
+    // ── RAW format: setiap baris Excel = 1 row database (flat, tidak di-aggregate)
+    // Filter: WITEL_CC = SURAMADU (customer's witel)
+    toInsert = [];
 
     for (const r of rows) {
-      // ── Filter: WITEL_CC = SURAMADU ──────────────────────────────────────
       const witelCc = String(r.WITEL_CC || r.witel_cc || "").trim().toUpperCase();
       if (!witelCc.includes("SURAMADU")) continue;
 
       const nik = String(r.NIK || r.nik || "").trim();
       const namaAm = String(r.NAMA_AM || r.nama_am || "").trim();
-      const divisiRaw = String(r.DIVISI_CC || r.divisi_cc || r.DIVISI_AM || r.divisi || "").trim();
-      const periodeStr = String(r.PERIODE || "").trim(); // "202601"
+      const periodeStr = String(r.PERIODE || "").trim();
       if (!nik || !namaAm || !periodeStr || periodeStr.length < 6) continue;
-      if (!divisiRaw) continue; // skip rows dengan divisi kosong
 
-      // Key menyertakan divisi agar AM yang handle >1 divisi (DPS+DSS, DGS+DSS, dll)
-      // disimpan sebagai rekord terpisah — bukan digabung jadi satu
-      const key = `${nik}__${periodeStr}__${divisiRaw.toUpperCase()}`;
+      const divisiRaw = String(r.DIVISI_CC || r.divisi_cc || r.DIVISI_AM || r.divisi || "").trim();
+      const tahun = parseInt(periodeStr.slice(0, 4), 10);
+      const bulan = parseInt(periodeStr.slice(4, 6), 10);
 
-      // Revenue per tipe — negatif mengurangi total (e.g. billing reversal)
-      // parseIndonesianNumber preserves full floating-point precision + negatives
       const tReg = parseIndonesianNumber(r.TARGET_REVENUE ?? r.target_revenue);
       const rReg = parseIndonesianNumber(r.REAL_REVENUE ?? r.real_revenue);
       const tSustain = parseIndonesianNumber(r.TARGET_SUSTAIN ?? r.target_sustain ?? 0);
@@ -255,28 +225,20 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       const tNgtma = parseIndonesianNumber(r.TARGET_NGTMA ?? r.target_ngtma ?? 0);
       const rNgtma = parseIndonesianNumber(r.REAL_NGTMA ?? r.real_ngtma ?? 0);
       const targetTotal = tReg + tSustain + tScaling + tNgtma;
-      // Sum positives first, then subtract negatives (handles billing reversals correctly)
-      const realTotal = (
-        Math.max(0, rReg) + Math.max(0, rSustain) + Math.max(0, rScaling) + Math.max(0, rNgtma)
-      ) - (
-        Math.abs(Math.min(0, rReg)) + Math.abs(Math.min(0, rSustain)) +
-        Math.abs(Math.min(0, rScaling)) + Math.abs(Math.min(0, rNgtma))
-      );
+      const realTotal = Math.max(0, rReg) + Math.max(0, rSustain) + Math.max(0, rScaling) + Math.max(0, rNgtma)
+        - (Math.abs(Math.min(0, rReg)) + Math.abs(Math.min(0, rSustain)) + Math.abs(Math.min(0, rScaling)) + Math.abs(Math.min(0, rNgtma)));
+      const achRate = targetTotal > 0 ? realTotal / targetTotal : 0;
 
-      // New: billing sub-components — raw values, preserve negatives and precision
       const revBase = parseIndonesianNumber(r.REVENUE_BASE ?? r.revenue_base ?? 0);
       const revBillcom = parseIndonesianNumber(r.REVENUE_BILLCOM ?? r.revenue_billcom ?? 0);
-
-      // New: achievement rates — direct from file, full precision (a_rev = REAL_REVENUE/TARGET_REVENUE)
-      const rawARev = parseFloat(String(r.a_rev ?? r.a_rev ?? r["a_rev"] ?? 0)) || 0;
+      const rawARev = parseFloat(String(r.a_rev ?? r["a_rev"] ?? 0)) || 0;
       const rawANgtma = parseFloat(String(r.a_ngtma ?? r["a_ngtma"] ?? 0)) || 0;
       const rawAScaling = parseFloat(String(r.a_scaling ?? r["a_scaling"] ?? 0)) || 0;
       const rawASustain = parseFloat(String(r.a_sustain ?? r["a_sustain"] ?? 0)) || 0;
 
-      // Customer info — semua kolom pelanggan disimpan
       const pelanggan = String(r.STANDARD_NAME || r.NAMA_PELANGGAN || r.PELANGGAN || r.pelanggan || r.nama_account || "").trim();
       const nip = String(r.NIP_NAS || r.nip_nas || r.NIP || "").trim();
-      const proporsi = (parseFloat(String(r.PROPORSI ?? r.proporsi ?? 0)) || 0) * 100;
+      const proporsi = (parseFloat(String(r.PROPORSI ?? r.proporsi ?? 0)) || 0);
       const group = String(r.GROUP || r.group || "").trim();
       const industri = String(r.INDUSTRI || r.industri || "").trim();
       const lsegmen = String(r.LSEGMEN || r.lsegmen || "").trim();
@@ -285,80 +247,43 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       const regional = String(r.REGIONAL || r.regional || "").trim();
       const divisiCc = String(r.DIVISI_CC || r.divisi_cc || "").trim();
       const kawasan = String(r.KAWASAN || r.kawasan || "").trim();
+      const layanan = String(r.LAYANAN || r.layanan || "").trim();
 
-      if (!amMap.has(key)) {
-        amMap.set(key, {
-          nik, namaAm,
-          divisi: divisiRaw,
-          witel: String(r.WITEL_AM || r.witel || "SURAMADU").trim(),
-          levelAm: String(r.LEVEL_AM || r.level_am || "").trim(),
-          periodeStr, target: 0, real: 0,
-          tReg: 0, rReg: 0, tSustain: 0, rSustain: 0,
-          tScaling: 0, rScaling: 0, tNgtma: 0, rNgtma: 0,
-          revBase: 0, revBillcom: 0,
-          customers: [],
-        });
-      }
-      const entry = amMap.get(key)!;
-      entry.target += targetTotal;
-      entry.real += realTotal;
-      entry.tReg += tReg; entry.rReg += rReg;
-      entry.tSustain += tSustain; entry.rSustain += rSustain;
-      entry.tScaling += tScaling; entry.rScaling += rScaling;
-      entry.tNgtma += tNgtma; entry.rNgtma += rNgtma;
-      entry.revBase += revBase; entry.revBillcom += revBillcom;
-      if (pelanggan || nip) {
-        entry.customers.push({
-          nip, pelanggan, proporsi,
-          group, industri, lsegmen, ssegmen,
-          witelCc, telda, regional, divisiCc, kawasan,
-          Reguler: { target: tReg, real: rReg },
-          Sustain: { target: tSustain, real: rSustain },
-          Scaling: { target: tScaling, real: rScaling },
-          NGTMA: { target: tNgtma, real: rNgtma },
-          targetTotal, realTotal,
-          revenueBase: revBase, revenueBillcom: revBillcom,
-          aRev: rawARev, aNgtma: rawANgtma, aScaling: rawAScaling, aSustain: rawASustain,
-        });
-      }
-    }
-
-    toInsert = [...amMap.values()].map(entry => {
-      const year = parseInt(entry.periodeStr.slice(0, 4), 10);
-      const month = parseInt(entry.periodeStr.slice(4, 6), 10);
-      const achRate = entry.target > 0 ? entry.real / entry.target : 0;
-      return {
-        nik: entry.nik,
-        namaAm: entry.namaAm,
-        divisi: entry.divisi,
-        witelAm: entry.witel || null,
-        levelAm: entry.levelAm || null,
-        tahun: year,
-        bulan: month,
-        targetRevenue: entry.target,
-        realRevenue: entry.real,
-        targetReguler: entry.tReg,
-        realReguler: entry.rReg,
-        targetSustain: entry.tSustain,
-        realSustain: entry.rSustain,
-        targetScaling: entry.tScaling,
-        realScaling: entry.rScaling,
-        targetNgtma: entry.tNgtma,
-        realNgtma: entry.rNgtma,
-        revenueBase: entry.revBase || null,
-        revenueBillcom: entry.revBillcom || null,
-        aRev: null, // per-customer rates stored in komponenDetail
-        aNgtma: null,
-        aScaling: null,
-        aSustain: null,
+      toInsert.push({
+        nik,
+        namaAm,
+        divisi: divisiRaw || null,
+        divisiCc: divisiCc || null,
+        witelAm: String(r.WITEL_AM || r.witel_am || "SURAMADU").trim() || null,
+        levelAm: String(r.LEVEL_AM || r.level_am || "").trim() || null,
+        tahun,
+        bulan,
+        targetRevenue: tReg,
+        realRevenue: rReg,
+        targetReguler: tReg,
+        realReguler: rReg,
+        targetSustain: tSustain,
+        realSustain: rSustain,
+        targetScaling: tScaling,
+        realScaling: rScaling,
+        targetNgtma: tNgtma,
+        realNgtma: rNgtma,
+        revenueBase: revBase || null,
+        revenueBillcom: revBillcom || null,
+        aRev: rawARev || null,
+        aNgtma: rawANgtma || null,
+        aScaling: rawAScaling || null,
+        aSustain: rawASustain || null,
         achRate,
         achRateYtd: achRate,
         rankAch: 0,
         statusWarna: achRate >= 1 ? "hijau" : achRate >= 0.8 ? "oranye" : "merah",
         snapshotDate: snapshotDate || null,
-        komponenDetail: entry.customers.length > 0 ? JSON.stringify(entry.customers) : null,
-      };
-    }).filter(r => r.nik && r.namaAm);
+        komponenDetail: JSON.stringify({ nip, pelanggan, group, industri, lsegmen, ssegmen, witelCc, telda, regional, divisiCc, kawasan, proporsi, layanan }),
+      });
+    }
+
+    toInsert = toInsert.filter(r => r.nik && r.namaAm);
   } else {
     // ── Original format (one row per AM, pre-aggregated)
     const importPeriodOrig = req.body.period || detectPeriod(rows, sourceUrl || undefined);
@@ -453,47 +378,75 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
     const status_arr = batch.map(r => r.statusWarna);
     const snap_arr = batch.map(r => r.snapshotDate);
     const komp_arr = batch.map(r => r.komponenDetail);
+    const imp_arr = batch.map(() => imp.id);
+    const divisiCc_arr = batch.map(r => r.divisiCc || null);
+    const witelAm_arr = batch.map(r => r.witelAm || null);
+    const levelAm_arr = batch.map(r => r.levelAm || null);
+    const revBase_arr = batch.map(r => r.revenueBase || null);
+    const revBill_arr = batch.map(r => r.revenueBillcom || null);
+    const aRev_arr = batch.map(r => r.aRev || null);
+    const aNgt_arr = batch.map(r => r.aNgtma || null);
+    const aScal_arr = batch.map(r => r.aScaling || null);
+    const aSust_arr = batch.map(r => r.aSustain || null);
 
     let batchOk = false;
     try {
       await pool.query(`
         INSERT INTO performance_data
-          (nik, nama_am, divisi, tahun, bulan, target_revenue, real_revenue,
+          (nik, nama_am, divisi, divisi_cc, witel_am, level_am, tahun, bulan,
+           target_revenue, real_revenue,
            target_reguler, real_reguler, target_sustain, real_sustain,
            target_scaling, real_scaling, target_ngtma, real_ngtma,
+           revenue_base, revenue_billcom, a_rev, a_ngtma, a_scaling, a_sustain,
            ach_rate, ach_rate_ytd, rank_ach, status_warna, snapshot_date, komponen_detail, import_id)
         SELECT
-          nik, nama_am, divisi, tahun, bulan, target_revenue::real, real_revenue::real,
+          nik, nama_am, divisi, divisi_cc, witel_am, level_am, tahun, bulan,
+          target_revenue::real, real_revenue::real,
           target_reguler::real, real_reguler::real, target_sustain::real, real_sustain::real,
           target_scaling::real, real_scaling::real, target_ngtma::real, real_ngtma::real,
+          revenue_base::real, revenue_billcom::real, a_rev::real, a_ngtma::real, a_scaling::real, a_sustain::real,
           ach_rate::real, ach_rate_ytd::real, rank_ach::integer, status_warna, snapshot_date, komponen_detail, $1::integer
-        FROM UNNEST($2::text[], $3::text[], $4::text[], $5::integer[], $6::integer[],
-                    $7::real[], $8::real[], $9::real[], $10::real[], $11::real[], $12::real[],
-                    $13::real[], $14::real[], $15::real[], $16::real[], $17::real[], $18::real[],
-                    $19::real[], $20::real[], $21::integer[], $22::text[], $23::text[])
-        AS t(nik, nama_am, divisi, tahun, bulan, target_revenue, real_revenue,
+        FROM UNNEST($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
+                    $8::integer[], $9::integer[], $10::real[],
+                    $11::real[], $12::real[], $13::real[], $14::real[], $15::real[], $16::real[],
+                    $17::real[], $18::real[], $19::real[], $20::real[],
+                    $21::real[], $22::real[], $23::real[], $24::real[], $25::real[], $26::real[],
+                    $27::real[], $28::real[], $29::integer[], $30::text[], $31::text[], $32::integer[])
+        AS t(nik, nama_am, divisi, divisi_cc, witel_am, level_am, tahun, bulan,
+              target_revenue, real_revenue,
               target_reguler, real_reguler, target_sustain, real_sustain,
               target_scaling, real_scaling, target_ngtma, real_ngtma,
-              ach_rate, ach_rate_ytd, rank_ach, status_warna, snapshot_date, komponen_detail)
-      `, [imp.id, nik_arr, namaAm_arr, divisi_arr, tahun_arr, bulan_arr,
+              revenue_base, revenue_billcom, a_rev, a_ngtma, a_scaling, a_sustain,
+              ach_rate, ach_rate_ytd, rank_ach, status_warna, snapshot_date, komponen_detail, import_id)
+      `, [imp.id, nik_arr, namaAm_arr, divisi_arr,
+          divisiCc_arr, witelAm_arr, levelAm_arr,
+          tahun_arr, bulan_arr,
           targetRev_arr, realRev_arr, tReg_arr, rReg_arr, tSust_arr, rSust_arr,
-          tScal_arr, rScal_arr, tNgt_arr, rNgt_arr, achRate_arr, achYtd_arr,
-          rank_arr, status_arr, snap_arr, komp_arr]);
+          tScal_arr, rScal_arr, tNgt_arr, rNgt_arr,
+          revBase_arr, revBill_arr,
+          aRev_arr, aNgt_arr, aScal_arr, aSust_arr,
+          achRate_arr, achYtd_arr,
+          rank_arr, status_arr, snap_arr, komp_arr, imp_arr]);
       batchOk = true;
     } catch (batchErr: any) {
       // Fallback: insert one-by-one
       for (const r of batch) {
         await pool.query(`
           INSERT INTO performance_data
-            (nik, nama_am, divisi, tahun, bulan, target_revenue, real_revenue,
+            (nik, nama_am, divisi, divisi_cc, witel_am, level_am, tahun, bulan,
+             target_revenue, real_revenue,
              target_reguler, real_reguler, target_sustain, real_sustain,
              target_scaling, real_scaling, target_ngtma, real_ngtma,
+             revenue_base, revenue_billcom, a_rev, a_ngtma, a_scaling, a_sustain,
              ach_rate, ach_rate_ytd, rank_ach, status_warna, snapshot_date, komponen_detail, import_id)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-        `, [r.nik, r.namaAm, r.divisi, r.tahun, r.bulan,
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
+        `, [r.nik, r.namaAm, r.divisi, r.divisiCc || null, r.witelAm || null, r.levelAm || null,
+            r.tahun, r.bulan,
             r.targetRevenue, r.realRevenue,
             r.targetReguler, r.realReguler, r.targetSustain, r.realSustain,
             r.targetScaling, r.realScaling, r.targetNgtma, r.realNgtma,
+            r.revenueBase || null, r.revenueBillcom || null,
+            r.aRev || null, r.aNgtma || null, r.aScaling || null, r.aSustain || null,
             r.achRate, r.achRateYtd, r.rankAch, r.statusWarna, r.snapshotDate, r.komponenDetail, imp.id]);
       }
     }
@@ -781,17 +734,130 @@ router.get("/import/:id/data", requireAuth, async (req, res): Promise<void> => {
   if (!imp) { res.status(404).json({ error: "Import tidak ditemukan" }); return; }
 
   res.setHeader("Cache-Control", "no-store");
-  if (imp.type === "performance") {
-    const rows = await db.select().from(performanceDataTable).where(eq(performanceDataTable.importId, id));
-    res.json({ type: imp.type, rows: rows.map(r => ({ ...r, createdAt: r.createdAt.toISOString() })) });
-  } else if (imp.type === "funnel") {
-    const rows = await db.select().from(salesFunnelTable).where(eq(salesFunnelTable.importId, id));
-    res.json({ type: imp.type, rows: rows.map(r => ({ ...r, createdAt: r.createdAt?.toISOString() })) });
-  } else if (imp.type === "activity") {
-    const rows = await db.select().from(salesActivityTable).where(eq(salesActivityTable.importId, id));
-    res.json({ type: imp.type, rows: rows.map(r => ({ ...r, createdAt: r.createdAt?.toISOString() })) });
-  } else {
-    res.json({ type: imp.type, rows: [] });
+  try {
+    if (imp.type === "performance") {
+      const { rows } = await pool.query(`
+        SELECT
+          p.id as "amId",
+          p.nik, p.nama_am as "namaAm", p.level_am as "levelAm",
+          p.divisi as "divisiAm", p.witel_am as "witelAm",
+          p.tahun, p.bulan,
+          p.target_revenue, p.real_revenue,
+          p.target_reguler, p.real_reguler,
+          p.target_sustain, p.real_sustain,
+          p.target_scaling, p.real_scaling,
+          p.target_ngtma, p.real_ngtma,
+          p.revenue_base as "revenueBase", p.revenue_billcom as "revenueBillcom",
+          p.a_rev, p.a_ngtma, p.a_scaling, p.a_sustain,
+          p.ach_rate as "achRate", p.status_warna as "statusWarna",
+          p.komponen_detail as "komponenDetail",
+          p.import_id as "importId"
+        FROM performance_data p WHERE p.import_id = $1
+        ORDER BY p.nama_am
+      `, [id]);
+      // Flatten: expand rows that have komponen_detail into one row per customer
+      const flatRows: any[] = [];
+      for (const r of rows) {
+        const detail = r.komponenDetail;
+        if (detail) {
+          try {
+            const parsed = JSON.parse(detail);
+            const arr = Array.isArray(parsed) ? parsed : [parsed];
+            for (const d of arr) {
+              flatRows.push({
+                nik: r.nik,
+                namaAm: r.namaAm,
+                levelAm: r.levelAm,
+                divisiAm: r.divisiAm,
+                witelAm: r.witelAm,
+                tahun: r.tahun,
+                bulan: r.bulan,
+                targetReguler: r.target_reguler,
+                realReguler: r.real_reguler,
+                targetSustain: r.target_sustain,
+                realSustain: r.real_sustain,
+                targetScaling: r.target_scaling,
+                realScaling: r.real_scaling,
+                targetNgtma: r.real_ngtma,
+                realNgtma: r.real_ngtma,
+                targetTotal: r.target_reguler + r.target_sustain + r.target_scaling + r.target_ngtma,
+                realTotal: r.real_reguler + r.real_sustain + r.real_scaling + r.real_ngtma,
+                revenueBase: r.revenueBase,
+                revenueBillcom: r.revenueBillcom,
+                a_rev: r.a_rev,
+                a_ngtma: r.a_ngtma,
+                a_scaling: r.a_scaling,
+                a_sustain: r.a_sustain,
+                achRate: r.achRate,
+                statusWarna: r.statusWarna,
+                nip: d.nip || null,
+                pelanggan: d.pelanggan || null,
+                groupName: d.group || null,
+                industri: d.industri || null,
+                lsegmen: d.lsegmen || null,
+                ssegmen: d.ssegmen || null,
+                witelCc: d.witelCc || null,
+                telda: d.telda || null,
+                regional: d.regional || null,
+                divisiCc: d.divisiCc || null,
+                kawasan: d.kawasan || null,
+                proporsi: d.proporsi || null,
+                layanan: d.layanan || null,
+              });
+            }
+          } catch {
+            // If parsing fails, push the row as-is
+            flatRows.push({
+              nik: r.nik, namaAm: r.namaAm, levelAm: r.levelAm,
+              divisiAm: r.divisiAm, witelAm: r.witelAm,
+              tahun: r.tahun, bulan: r.bulan,
+              targetReguler: r.target_reguler, realReguler: r.real_reguler,
+              targetSustain: r.target_sustain, realSustain: r.real_sustain,
+              targetScaling: r.target_scaling, realScaling: r.real_scaling,
+              targetNgtma: r.target_ngtma, realNgtma: r.real_ngtma,
+              targetTotal: r.target_reguler + r.target_sustain + r.target_scaling + r.target_ngtma,
+              realTotal: r.real_reguler + r.real_sustain + r.real_scaling + r.real_ngtma,
+              revenueBase: r.revenueBase, revenueBillcom: r.revenueBillcom,
+              a_rev: r.a_rev, a_ngtma: r.a_ngtma, a_scaling: r.a_scaling, a_sustain: r.a_sustain,
+              achRate: r.achRate, statusWarna: r.statusWarna,
+              nip: null, pelanggan: null, groupName: null, industri: null,
+              lsegmen: null, ssegmen: null, witelCc: null, telda: null,
+              regional: null, divisiCc: null, kawasan: null, proporsi: null, layanan: null,
+            });
+          }
+        } else {
+          flatRows.push({
+            nik: r.nik, namaAm: r.namaAm, levelAm: r.levelAm,
+            divisiAm: r.divisiAm, witelAm: r.witelAm,
+            tahun: r.tahun, bulan: r.bulan,
+            targetReguler: r.target_reguler, realReguler: r.real_reguler,
+            targetSustain: r.target_sustain, realSustain: r.real_sustain,
+            targetScaling: r.target_scaling, realScaling: r.real_scaling,
+            targetNgtma: r.target_ngtma, realNgtma: r.real_ngtma,
+            targetTotal: r.target_reguler + r.target_sustain + r.target_scaling + r.target_ngtma,
+            realTotal: r.real_reguler + r.real_sustain + r.real_scaling + r.real_ngtma,
+            revenueBase: r.revenueBase, revenueBillcom: r.revenueBillcom,
+            a_rev: r.a_rev, a_ngtma: r.a_ngtma, a_scaling: r.a_scaling, a_sustain: r.a_sustain,
+            achRate: r.achRate, statusWarna: r.statusWarna,
+            nip: null, pelanggan: null, groupName: null, industri: null,
+            lsegmen: null, ssegmen: null, witelCc: null, telda: null,
+            regional: null, divisiCc: null, kawasan: null, proporsi: null, layanan: null,
+          });
+        }
+      }
+      res.json({ type: imp.type, rows: flatRows });
+    } else if (imp.type === "funnel") {
+      const rows = await db.select().from(salesFunnelTable).where(eq(salesFunnelTable.importId, id));
+      res.json({ type: imp.type, rows: rows.map(r => ({ ...r, createdAt: r.createdAt?.toISOString() })) });
+    } else if (imp.type === "activity") {
+      const rows = await db.select().from(salesActivityTable).where(eq(salesActivityTable.importId, id));
+      res.json({ type: imp.type, rows: rows.map(r => ({ ...r, createdAt: r.createdAt?.toISOString() })) });
+    } else {
+      res.json({ type: imp.type, rows: [] });
+    }
+  } catch (err: any) {
+    console.error("[/import/:id/data] Error:", err?.message, "| Cause:", err?.cause?.message || err?.cause, "\nStack:", err?.stack);
+    res.status(500).json({ error: "Gagal mengambil data", detail: err?.cause?.message || err?.message });
   }
 });
 

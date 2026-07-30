@@ -20,6 +20,13 @@ const SLIDES = [
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const BASE_PATH = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
+const fmtRupiah = (n: number) => {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "Rp 0";
+  const absV = Math.abs(v);
+  const formatted = formatRupiahFull(absV).replace("Rp ", v < 0 ? "-Rp " : "Rp ");
+  return formatted;
+};
 const FUNNEL_PHASES = ["F0","F1","F2","F3","F4","F5"];
 const FUNNEL_PHASE_LABELS: Record<string,string> = { F0:"Lead",F1:"Prospect",F2:"Quote",F3:"Negosiasi",F4:"Closing",F5:"Won/Closed" };
 const FUNNEL_PHASE_COLORS: Record<string,string> = { F0:"#93c5fd",F1:"#3b82f6",F2:"#818cf8",F3:"#6366f1",F4:"#8b5cf6",F5:"#10b981" };
@@ -46,7 +53,11 @@ function shortSnap(createdAt: string, snapshotDate?: string | null) {
 }
 function parseKomponen(raw: string | null | undefined): any[] {
   if (!raw) return [];
-  try { return JSON.parse(raw); } catch { return []; }
+  try {
+    const parsed = JSON.parse(raw);
+    // Support both flat (single object) and grouped (array of objects) formats
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch { return []; }
 }
 const KOMPONEN_TYPES = ["Reguler", "Sustain", "Scaling", "NGTMA"] as const;
 function customerTotal(c: any): { target: number; real: number } {
@@ -64,14 +75,17 @@ function sumKomponen(customers: any[], tipe: string): { target: number; real: nu
   return { target: customers.reduce((s, c) => s + (c[tipe]?.target ?? 0), 0), real: customers.reduce((s, c) => s + (c[tipe]?.real ?? 0), 0) };
 }
 function hasTypedColumn(target: any, real: any): boolean {
-  return (target != null && target > 0) || (real != null && real > 0);
+  const t = target == null || target === "" ? null : Number(target);
+  const r = real == null || real === "" ? null : Number(real);
+  return (t != null && t > 0) || (r != null && r > 0);
 }
 function getTypedRevenue(row: any, tipe: string): { target: number; real: number } {
-  if (tipe === "Semua") return { target: row.targetRevenue ?? 0, real: row.realRevenue ?? 0 };
-  if (tipe === "Reguler" && hasTypedColumn(row.targetReguler, row.realReguler)) return { target: row.targetReguler ?? 0, real: row.realReguler ?? 0 };
-  if (tipe === "Sustain" && hasTypedColumn(row.targetSustain, row.realSustain)) return { target: row.targetSustain ?? 0, real: row.realSustain ?? 0 };
-  if (tipe === "Scaling" && hasTypedColumn(row.targetScaling, row.realScaling)) return { target: row.targetScaling ?? 0, real: row.realScaling ?? 0 };
-  if (tipe === "NGTMA" && hasTypedColumn(row.targetNgtma, row.realNgtma)) return { target: row.targetNgtma ?? 0, real: row.realNgtma ?? 0 };
+  const norm = (v: any) => (v == null || v === "" ? 0 : Number(v));
+  if (tipe === "Semua") return { target: norm(row.targetRevenue), real: norm(row.realRevenue) };
+  if (tipe === "Reguler" && hasTypedColumn(row.targetReguler, row.realReguler)) return { target: norm(row.targetReguler), real: norm(row.realReguler) };
+  if (tipe === "Sustain" && hasTypedColumn(row.targetSustain, row.realSustain)) return { target: norm(row.targetSustain), real: norm(row.realSustain) };
+  if (tipe === "Scaling" && hasTypedColumn(row.targetScaling, row.realScaling)) return { target: norm(row.targetScaling), real: norm(row.realScaling) };
+  if (tipe === "NGTMA" && hasTypedColumn(row.targetNgtma, row.realNgtma)) return { target: norm(row.targetNgtma), real: norm(row.realNgtma) };
   return sumKomponen(parseKomponen(row.komponenDetail), tipe);
 }
 
@@ -1356,10 +1370,10 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
                   </span>
                 </td>
                 <td className="px-3 py-3 text-center overflow-hidden" style={stickyCell}>
-                  {amTargetVal>0?<span className="text-sm font-black tabular-nums text-foreground">{formatRupiahFull(amTargetVal)}</span>:<span className="text-muted-foreground text-xs">—</span>}
+                  {amTargetVal>0?<span className="text-sm font-black tabular-nums text-foreground">{fmtRupiah(amTargetVal)}</span>:<span className="text-muted-foreground text-xs">—</span>}
                 </td>
                 <td className="px-3 py-3" style={stickyCell}>
-                  <span className="font-black tabular-nums text-sm block text-foreground">{formatRupiahFull(amTotal)}</span>
+                  <span className="font-black tabular-nums text-sm block text-foreground">{fmtRupiah(amTotal)}</span>
                   {amTargetVal>0&&(
                     <div className="mt-1.5">
                       <div className="h-2.5 rounded-full bg-muted overflow-hidden">
@@ -1373,7 +1387,7 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
                   )}
                 </td>
                 <td className="px-4 py-3 text-right relative" style={stickyCell}>
-                  {typeof cr==="number"&&!isNaN(cr)?(<div className="relative inline-block group"><span className={cn("font-bold text-sm tabular-nums cursor-help underline decoration-dotted decoration-1 underline-offset-2",cr>=0.7?"text-emerald-600":"text-red-600")}>{(cr*100).toFixed(1)}%</span><div className="absolute right-0 top-full mt-1 z-[200] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150" style={{minWidth:"220px"}}><div className="bg-popover border border-border rounded-lg shadow-xl p-3 text-left"><div className="text-[10px] font-black text-slate-900 uppercase tracking-wide mb-2">Perhitungan Conversion Rate</div><div className="space-y-1.5"><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F5 (Closed/Won)</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(f5Val)}</span></div><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F3 + F4 + F5</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(f345Val)}</span></div><div className="border-t border-border pt-1.5 flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">CR = F5 ÷ (F3+F4+F5)</span><span className={cn("text-xs font-black tabular-nums whitespace-nowrap",cr>=0.7?"text-emerald-600":"text-red-600")}>= {(cr*100).toFixed(1)}%</span></div></div></div></div></div>):<span className="text-muted-foreground text-xs">—</span>}
+                  {typeof cr==="number"&&!isNaN(cr)?(<div className="relative inline-block group"><span className={cn("font-bold text-sm tabular-nums cursor-help underline decoration-dotted decoration-1 underline-offset-2",cr>=0.7?"text-emerald-600":"text-red-600")}>{(cr*100).toFixed(1)}%</span><div className="absolute right-0 top-full mt-1 z-[200] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150" style={{minWidth:"220px"}}><div className="bg-popover border border-border rounded-lg shadow-xl p-3 text-left"><div className="text-[10px] font-black text-slate-900 uppercase tracking-wide mb-2">Perhitungan Conversion Rate</div><div className="space-y-1.5"><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F5 (Closed/Won)</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(f5Val)}</span></div><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F3 + F4 + F5</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(f345Val)}</span></div><div className="border-t border-border pt-1.5 flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">CR = F5 ÷ (F3+F4+F5)</span><span className={cn("text-xs font-black tabular-nums whitespace-nowrap",cr>=0.7?"text-emerald-600":"text-red-600")}>= {(cr*100).toFixed(1)}%</span></div></div></div></div></div>):<span className="text-muted-foreground text-xs">—</span>}
                 </td>
               </>);
             })()}
@@ -1403,8 +1417,8 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
                   {phaseExpanded
                     ? <td colSpan={5} className="px-3 py-2.5" style={{background:phaseBg}}/>
                     : <><td colSpan={4} className="px-3 py-2.5" style={{background:phaseBg}}/>
-                        <td className="px-3 py-2.5 text-right overflow-hidden" style={{background:phaseBg}} title={formatRupiahFull(phaseTotal)}>
-                          <span className="text-sm font-black text-foreground tabular-nums">{formatRupiahFull(phaseTotal)}</span>
+                        <td className="px-3 py-2.5 text-right overflow-hidden" style={{background:phaseBg}} title={fmtRupiah(phaseTotal)}>
+                          <span className="text-sm font-black text-foreground tabular-nums">{fmtRupiah(phaseTotal)}</span>
                         </td></>}
                 </tr>
                 {phaseExpanded&&(
@@ -1442,12 +1456,12 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
                                   {lop.divisi?<span className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-black uppercase border ${lop.divisi.toUpperCase()==="DPS"?"bg-blue-50 text-blue-700 border-blue-200":lop.divisi.toUpperCase()==="DSS"?"bg-purple-50 text-purple-700 border-purple-200":"bg-slate-100 text-slate-600 border-slate-300"}`}>{lop.divisi}</span>:null}
                                 </div>
                               </td>
-                              <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-foreground overflow-hidden">{formatRupiahFull(lop.nilaiProyek||0)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-foreground overflow-hidden">{fmtRupiah(lop.nilaiProyek||0)}</td>
                             </tr>
                           ))}
                           <tr className="bg-red-50 border-t border-red-200">
                             <td colSpan={5} className="px-4 py-2 pl-16 overflow-hidden"><span className="text-sm font-black text-red-800 uppercase tracking-wide">Total Nilai {phase}</span></td>
-                            <td className="px-3 py-2 text-right tabular-nums text-sm font-black text-red-800 overflow-hidden">{formatRupiahFull(phaseTotal)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-sm font-black text-red-800 overflow-hidden">{fmtRupiah(phaseTotal)}</td>
                           </tr>
                         </tbody>
                       </table>
@@ -1460,7 +1474,7 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
           {amExpanded&&(
             <tr className="bg-slate-100 border-t-2 border-slate-300" style={ring?{borderLeft:`2px solid ${ring}`,borderRight:`2px solid ${ring}`,borderBottom:`2px solid ${ring}`}:{}}>
               <td colSpan={5} className="px-4 py-2.5 pl-10"><span className="text-sm font-black text-red-700 uppercase tracking-wide">Total Nilai Proyek — {am.namaAm}</span></td>
-              <td className="px-3 py-2.5 text-right tabular-nums font-black text-red-700 overflow-hidden text-sm">{formatRupiahFull(amTotal)}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums font-black text-red-700 overflow-hidden text-sm">{fmtRupiah(amTotal)}</td>
             </tr>
           )}
         </React.Fragment>
@@ -1507,12 +1521,12 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
               <td className="px-4 py-3"><div className="flex items-center gap-2"><ChevronRight className="w-4 h-4 text-muted-foreground shrink-0"/><span className="text-foreground text-sm uppercase tracking-wide font-extrabold">{am.namaAm}</span>{divBadges}<button type="button" onClick={e=>{e.stopPropagation();handleAmExpandIcon(amKey,orderedPhases);}} className="ml-1 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-secondary/60 shrink-0" title="Expand semua proyek"><Expand className="w-3 h-3"/></button></div></td>
               <td className="px-3 py-3 text-left whitespace-nowrap"><span className="text-sm font-black tabular-nums">{amLopCount} <span className="font-normal text-xs text-muted-foreground">lop</span></span></td>
               <td className="px-3 py-3 text-left whitespace-nowrap"><span className={cn("text-sm font-black tabular-nums",amPelangganFS>0?"text-foreground":"text-muted-foreground")}>{amPelangganFS>0?<>{amPelangganFS} <span className="font-normal text-xs text-muted-foreground">plg</span></>:"—"}</span></td>
-              <td className="px-3 py-3 text-center overflow-hidden">{amTgt>0?<span className="text-sm font-black tabular-nums text-foreground">{formatRupiahFull(amTgt)}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
+              <td className="px-3 py-3 text-center overflow-hidden">{amTgt>0?<span className="text-sm font-black tabular-nums text-foreground">{fmtRupiah(amTgt)}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
               <td className="px-3 py-3">
-                <span className="font-black tabular-nums text-sm block">{formatRupiahFull(amTotal)}</span>
+                <span className="font-black tabular-nums text-sm block">{fmtRupiah(amTotal)}</span>
                 {amTgt>0&&(<div className="mt-1.5"><div className="h-2.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full" style={{width:`${pctBarAm}%`,background:barColorAm}}/></div><div className="flex items-center gap-1 mt-0.5"><span className="text-sm font-black tabular-nums" style={{color:barColorAm}}>{typeof pctRawAm === "number" && !isNaN(pctRawAm) ? pctRawAm.toFixed(0) : "0"}%</span><span className="text-xs font-bold text-muted-foreground">capaian</span></div></div>)}
               </td>
-              <td className="px-4 py-3 text-right relative">{typeof crAm==="number"&&!isNaN(crAm)?(<div className="relative inline-block group"><span className={cn("font-bold text-sm tabular-nums cursor-help underline decoration-dotted decoration-1 underline-offset-2",crAm>=0.7?"text-emerald-600":"text-red-600")}>{(crAm*100).toFixed(1)}%</span><div className="absolute right-0 top-full mt-1 z-[200] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150" style={{minWidth:"220px"}}><div className="bg-popover border border-border rounded-lg shadow-xl p-3 text-left"><div className="text-[10px] font-black text-slate-900 uppercase tracking-wide mb-2">Perhitungan Conversion Rate</div><div className="space-y-1.5"><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F5 (Closed/Won)</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(f5Val)}</span></div><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F3 + F4 + F5</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(f345Val)}</span></div><div className="border-t border-border pt-1.5 flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">CR = F5 ÷ (F3+F4+F5)</span><span className={cn("text-xs font-black tabular-nums whitespace-nowrap",crAm>=0.7?"text-emerald-600":"text-red-600")}>= {(crAm*100).toFixed(1)}%</span></div></div></div></div></div>):<span className="text-muted-foreground text-xs">—</span>}</td>
+              <td className="px-4 py-3 text-right relative">{typeof crAm==="number"&&!isNaN(crAm)?(<div className="relative inline-block group"><span className={cn("font-bold text-sm tabular-nums cursor-help underline decoration-dotted decoration-1 underline-offset-2",crAm>=0.7?"text-emerald-600":"text-red-600")}>{(crAm*100).toFixed(1)}%</span><div className="absolute right-0 top-full mt-1 z-[200] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150" style={{minWidth:"220px"}}><div className="bg-popover border border-border rounded-lg shadow-xl p-3 text-left"><div className="text-[10px] font-black text-slate-900 uppercase tracking-wide mb-2">Perhitungan Conversion Rate</div><div className="space-y-1.5"><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F5 (Closed/Won)</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(f5Val)}</span></div><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F3 + F4 + F5</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(f345Val)}</span></div><div className="border-t border-border pt-1.5 flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">CR = F5 ÷ (F3+F4+F5)</span><span className={cn("text-xs font-black tabular-nums whitespace-nowrap",crAm>=0.7?"text-emerald-600":"text-red-600")}>= {(crAm*100).toFixed(1)}%</span></div></div></div></div></div>):<span className="text-muted-foreground text-xs">—</span>}</td>
             </tr>
           </tbody>
         </table>
@@ -1531,12 +1545,12 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
               </td>
               <td className="px-3 py-2.5 text-left whitespace-nowrap" style={bg}><span className="text-sm font-black tabular-nums">{amLopCount} <span className="font-normal text-xs text-muted-foreground">lop</span></span></td>
               <td className="px-3 py-2.5 text-left whitespace-nowrap" style={bg}><span className={cn("text-sm font-black tabular-nums",amPelangganFS>0?"text-foreground":"text-muted-foreground")}>{amPelangganFS>0?<>{amPelangganFS} <span className="font-normal text-xs text-muted-foreground">plg</span></>:"—"}</span></td>
-              <td className="px-3 py-2.5 text-center overflow-hidden" style={bg}>{amTgt>0?<span className="text-sm font-black tabular-nums text-foreground">{formatRupiahFull(amTgt)}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
+              <td className="px-3 py-2.5 text-center overflow-hidden" style={bg}>{amTgt>0?<span className="text-sm font-black tabular-nums text-foreground">{fmtRupiah(amTgt)}</span>:<span className="text-muted-foreground text-xs">—</span>}</td>
               <td className="px-3 py-2.5" style={bg}>
-                <span className="font-black tabular-nums text-sm block">{formatRupiahFull(amTotal)}</span>
+                <span className="font-black tabular-nums text-sm block">{fmtRupiah(amTotal)}</span>
                 {amTgt>0&&(<div className="mt-1.5"><div className="h-2.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full" style={{width:`${pctBarAm}%`,background:barColorAm}}/></div><div className="flex items-center gap-1 mt-0.5"><span className="text-sm font-black tabular-nums" style={{color:barColorAm}}>{typeof pctRawAm === "number" && !isNaN(pctRawAm) ? pctRawAm.toFixed(0) : "0"}%</span><span className="text-xs font-bold text-muted-foreground">capaian</span></div></div>)}
               </td>
-              <td className="px-4 py-2.5 text-right relative" style={bg}>{typeof crAm==="number"&&!isNaN(crAm)?(<div className="relative inline-block group"><span className={cn("font-bold text-sm tabular-nums cursor-help underline decoration-dotted decoration-1 underline-offset-2",crAm>=0.7?"text-emerald-600":"text-red-600")}>{(crAm*100).toFixed(1)}%</span><div className="absolute right-0 top-full mt-1 z-[200] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150" style={{minWidth:"220px"}}><div className="bg-popover border border-border rounded-lg shadow-xl p-3 text-left"><div className="text-[10px] font-black text-slate-900 uppercase tracking-wide mb-2">Perhitungan Conversion Rate</div><div className="space-y-1.5"><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F5 (Closed/Won)</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(f5Val)}</span></div><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F3 + F4 + F5</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(f345Val)}</span></div><div className="border-t border-border pt-1.5 flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">CR = F5 ÷ (F3+F4+F5)</span><span className={cn("text-xs font-black tabular-nums whitespace-nowrap",crAm>=0.7?"text-emerald-600":"text-red-600")}>= {(crAm*100).toFixed(1)}%</span></div></div></div></div></div>):<span className="text-muted-foreground text-xs">—</span>}</td>
+              <td className="px-4 py-2.5 text-right relative" style={bg}>{typeof crAm==="number"&&!isNaN(crAm)?(<div className="relative inline-block group"><span className={cn("font-bold text-sm tabular-nums cursor-help underline decoration-dotted decoration-1 underline-offset-2",crAm>=0.7?"text-emerald-600":"text-red-600")}>{(crAm*100).toFixed(1)}%</span><div className="absolute right-0 top-full mt-1 z-[200] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150" style={{minWidth:"220px"}}><div className="bg-popover border border-border rounded-lg shadow-xl p-3 text-left"><div className="text-[10px] font-black text-slate-900 uppercase tracking-wide mb-2">Perhitungan Conversion Rate</div><div className="space-y-1.5"><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F5 (Closed/Won)</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(f5Val)}</span></div><div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">F3 + F4 + F5</span><span className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(f345Val)}</span></div><div className="border-t border-border pt-1.5 flex items-center justify-between gap-4"><span className="text-xs font-medium text-slate-700 whitespace-nowrap">CR = F5 ÷ (F3+F4+F5)</span><span className={cn("text-xs font-black tabular-nums whitespace-nowrap",crAm>=0.7?"text-emerald-600":"text-red-600")}>= {(crAm*100).toFixed(1)}%</span></div></div></div></div></div>):<span className="text-muted-foreground text-xs">—</span>}</td>
             </tr>
           </tbody>
         </table>
@@ -1559,7 +1573,7 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
                   </th>
                   {phaseExpanded
                     ?<th colSpan={5} className="px-3 py-2.5 font-normal" style={{background:phaseBg}}/>
-                    :<><th colSpan={4} className="px-3 py-2.5 font-normal" style={{background:phaseBg}}/><th className="px-3 py-2.5 text-right overflow-hidden font-normal" style={{background:phaseBg}}><span className="text-sm font-black text-foreground tabular-nums">{formatRupiahFull(phaseTotal)}</span></th></>
+                    :<><th colSpan={4} className="px-3 py-2.5 font-normal" style={{background:phaseBg}}/><th className="px-3 py-2.5 text-right overflow-hidden font-normal" style={{background:phaseBg}}><span className="text-sm font-black text-foreground tabular-nums">{fmtRupiah(phaseTotal)}</span></th></>
                   }
                 </tr>
               </thead>
@@ -1599,12 +1613,12 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
                                   {lop.divisi?<span className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-black uppercase border ${lop.divisi.toUpperCase()==="DPS"?"bg-blue-50 text-blue-700 border-blue-200":lop.divisi.toUpperCase()==="DSS"?"bg-purple-50 text-purple-700 border-purple-200":"bg-slate-100 text-slate-600 border-slate-300"}`}>{lop.divisi}</span>:null}
                                 </div>
                               </td>
-                              <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-foreground overflow-hidden">{formatRupiahFull(lop.nilaiProyek||0)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold text-foreground overflow-hidden">{fmtRupiah(lop.nilaiProyek||0)}</td>
                             </tr>
                           ))}
                           <tr className="bg-red-50 border-t border-red-200">
                             <td colSpan={5} className="px-4 py-2 pl-16 overflow-hidden"><span className="text-sm font-black text-red-800 uppercase tracking-wide">Total Nilai {phase}</span></td>
-                            <td className="px-3 py-2 text-right tabular-nums text-sm font-black text-red-800 overflow-hidden">{formatRupiahFull(phaseTotal)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-sm font-black text-red-800 overflow-hidden">{fmtRupiah(phaseTotal)}</td>
                           </tr>
                         </tbody>
                       </table>
@@ -1619,7 +1633,7 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
           <tbody>
             <tr className="bg-slate-100 border-t-2 border-slate-300" style={ring?{borderLeft:`2px solid ${ring}`,borderRight:`2px solid ${ring}`,borderBottom:`2px solid ${ring}`}:{}}>
               <td colSpan={5} className="px-4 py-2.5 pl-10"><span className="text-sm font-black text-red-700 uppercase tracking-wide">Total Nilai Proyek — {am.namaAm}</span></td>
-              <td className="px-3 py-2.5 text-right tabular-nums font-black text-red-700 overflow-hidden text-sm">{formatRupiahFull(amTotal)}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums font-black text-red-700 overflow-hidden text-sm">{fmtRupiah(amTotal)}</td>
             </tr>
           </tbody>
         </table>
@@ -2923,30 +2937,58 @@ export default function EmbedPerforma() {
       }, (activeCmRows.length > 0 ? activeCmRows : cmRows)[0]);
       const divisiAll = [...new Set(cmRows.map((r: any) => r.divisi as string))];
       // Build customers — only from rows matching divisi filter
+      // For flat format (komponen_detail = single object without Reguler/Sustain/etc), inject revenue from parent AM row
       const custRaw = activeFilteredRows.flatMap((cr: any) => {
         const periodeStr = `${cr.tahun}-${String(cr.bulan).padStart(2, "0")}`;
-        return parseKomponen(cr.komponenDetail).map((c: any) => ({ ...c, _divisi: cr.divisi, _periode: periodeStr }));
+        const rawKomponen = parseKomponen(cr.komponenDetail);
+        // Flat format: each komponen_detail is a single object with customer metadata (nip, pelanggan, proporsi)
+        // but NO Reguler/Sustain/Scaling/NGTMA revenue fields
+        const isFlat = rawKomponen.length === 1 &&
+          rawKomponen[0]?.pelanggan != null &&
+          rawKomponen[0]?.Reguler == null &&
+          rawKomponen[0]?.Sustain == null;
+        const toNum = (v: any) => (v == null || v === "" ? 0 : Number(v));
+        return rawKomponen.map((c: any) => {
+          if (isFlat) {
+            return {
+              ...c,
+              _divisi: cr.divisi,
+              _periode: periodeStr,
+              Reguler: { target: toNum(cr.targetReguler), real: toNum(cr.realReguler) },
+              Sustain: { target: toNum(cr.targetSustain), real: toNum(cr.realSustain) },
+              Scaling: { target: toNum(cr.targetScaling), real: toNum(cr.realScaling) },
+              NGTMA: { target: toNum(cr.targetNgtma), real: toNum(cr.realNgtma) },
+            };
+          }
+          return { ...c, _divisi: cr.divisi, _periode: periodeStr };
+        });
       });
-      const custMap = new Map<string, any>();
+      const custMap = new Map<string, { c: any; periods: Set<string> }>();
       for (const c of custRaw) {
         const key = `${c.nip || c.pelanggan}__${c._divisi || ""}`;
         if (!custMap.has(key)) {
-          custMap.set(key, { ...c });
+          custMap.set(key, { c: { ...c }, periods: new Set([c._periode]) });
         } else {
-          const e = custMap.get(key)!;
-          for (const tipe of ["Reguler", "Sustain", "Scaling", "NGTMA"] as const) {
-            if (c[tipe] || e[tipe]) {
-              e[tipe] = {
-                target: (e[tipe]?.target ?? 0) + (c[tipe]?.target ?? 0),
-                real:   (e[tipe]?.real   ?? 0) + (c[tipe]?.real   ?? 0),
-              };
+          const entry = custMap.get(key)!;
+          entry.periods.add(c._periode);
+          // Merge revenue only if this customer appeared in this period already
+          // (flat format: same customer across periods — don't double-count)
+          const alreadyHadPeriod = entry.periods.size > 1;
+          if (!alreadyHadPeriod) {
+            for (const tipe of ["Reguler", "Sustain", "Scaling", "NGTMA"] as const) {
+              if (c[tipe] || entry.c[tipe]) {
+                entry.c[tipe] = {
+                  target: (entry.c[tipe]?.target ?? 0) + (c[tipe]?.target ?? 0),
+                  real:   (entry.c[tipe]?.real   ?? 0) + (c[tipe]?.real   ?? 0),
+                };
+              }
             }
+            entry.c.targetTotal = (entry.c.targetTotal ?? 0) + (c.targetTotal ?? 0);
+            entry.c.realTotal   = (entry.c.realTotal   ?? 0) + (c.realTotal   ?? 0);
           }
-          e.targetTotal = (e.targetTotal ?? 0) + (c.targetTotal ?? 0);
-          e.realTotal   = (e.realTotal   ?? 0) + (c.realTotal   ?? 0);
         }
       }
-      const mergedCustomers = [...custMap.values()];
+      const mergedCustomers = [...custMap.values()].map(e => e.c);
       return {
         nik, namaAm: primaryCmRow.namaAm, divisi: primaryCmRow.divisi, divisiAll,
         statusWarna: primaryCmRow.statusWarna,
@@ -3369,15 +3411,15 @@ export default function EmbedPerforma() {
                 title="TOP AM BY CURRENT MONTH"
                 subtitle={topCm ? `Divisi ${topCm.divisi} · CM ${cmPeriode ? periodeLabel(cmPeriode) : "—"}` : ""}
                 am={topCm} value={topCm && typeof topCm.cmAch === "number" && !isNaN(topCm.cmAch) ? `${(topCm.cmAch * 100).toFixed(1).replace(".", ",")}%` : "–"}
-                realValue={topCm ? formatRupiahFull(topCm.cmReal) : undefined}
-                targetValue={topCm ? formatRupiahFull(topCm.cmTarget) : undefined}
+                realValue={topCm ? fmtRupiah(topCm.cmReal) : undefined}
+                targetValue={topCm ? fmtRupiah(topCm.cmTarget) : undefined}
               />
               <TrophyCard colorScheme="blue"
                 title="TOP AM BY YEAR TO DATE"
                 subtitle={topYtd ? `Divisi ${topYtd.divisi} · YTD ${ytdPeriodeLabel}` : ""}
                 am={topYtd} value={topYtd && typeof topYtd.ytdAch === "number" && !isNaN(topYtd.ytdAch) ? `${(topYtd.ytdAch * 100).toFixed(1).replace(".", ",")}%` : "–"}
-                realValue={topYtd ? formatRupiahFull(topYtd.ytdReal) : undefined}
-                targetValue={topYtd ? formatRupiahFull(topYtd.ytdTarget) : undefined}
+                realValue={topYtd ? fmtRupiah(topYtd.ytdReal) : undefined}
+                targetValue={topYtd ? fmtRupiah(topYtd.ytdTarget) : undefined}
               />
               {/* Distribusi */}
               <div className="bg-card border border-border rounded-xl p-4">
@@ -3507,8 +3549,8 @@ export default function EmbedPerforma() {
                             </div>
                           </td>
                           <td className="px-2 py-2.5 text-center font-black text-foreground text-xs" style={{backgroundColor:bgCard}}>{(row.customers || []).length}</td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-foreground tabular-nums text-xs whitespace-nowrap" style={{backgroundColor:bgCard}}>{formatRupiahFull(row.ytdTarget)}</td>
-                          <td className="px-4 py-2.5 text-right font-black text-foreground tabular-nums text-xs whitespace-nowrap" style={{backgroundColor:bgCard}}>{formatRupiahFull(row.ytdReal)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-foreground tabular-nums text-xs whitespace-nowrap" style={{backgroundColor:bgCard}}>{fmtRupiah(row.ytdTarget)}</td>
+                          <td className="px-4 py-2.5 text-right font-black text-foreground tabular-nums text-xs whitespace-nowrap" style={{backgroundColor:bgCard}}>{fmtRupiah(row.ytdReal)}</td>
                           {showCmCol && <td className={cn("px-3 py-2.5 text-right font-black tabular-nums text-xs", row.cmAch >= 1 ? "text-green-600" : row.cmAch >= 0.8 ? "text-orange-500" : "text-red-600")} style={{backgroundColor:bgCard}}>
                             {typeof row.cmAch === "number" && !isNaN(row.cmAch) ? (row.cmAch * 100).toFixed(1).replace(".", ",") : "0"}%
                           </td>}
@@ -3602,7 +3644,7 @@ export default function EmbedPerforma() {
                               {displayCusts.map((c: any, ci: number) => {
                                 const { target: cTarget, real: cReal } = getCustRev(c);
                                 const prop = c.proporsi != null ? c.proporsi : 0;
-                                const cAch = cTarget > 0 ? cReal / cTarget * 100 : 0;
+                                const cAch = Math.abs(cTarget) > 0 ? cReal / cTarget * 100 : 0;
                                 return (
                                   <tr key={ci} className={cn("transition-colors hover:bg-rose-50", ci % 2 === 0 ? "bg-white dark:bg-card" : "bg-rose-50/40 dark:bg-rose-950/10")}>
                                     <td className="px-2 py-2 text-center text-[11px] text-muted-foreground font-mono">{ci + 1}</td>
@@ -3634,8 +3676,8 @@ export default function EmbedPerforma() {
                                         )}
                                       </td>
                                     )}
-                                    <td className="px-4 py-2 text-right text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(cTarget)}</td>
-                                    <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(cReal)}</td>
+                                    <td className="px-4 py-2 text-right text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(Math.abs(cTarget))}</td>
+                                    <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(Math.abs(cReal))}</td>
                                     <td className={cn("px-3 py-2 text-right text-xs font-black tabular-nums", cAch >= 100 ? "text-green-600" : cAch >= 80 ? "text-orange-500" : "text-red-500")}>
                                       {typeof cAch === "number" && !isNaN(cAch) ? cAch.toFixed(1) : "0"}%
                                     </td>
@@ -3669,8 +3711,8 @@ export default function EmbedPerforma() {
                                     <td />
                                     {showPeriodeCol && <td />}
                                     {filterDivisi === "LESA" && <td />}
-                                    <td className="px-4 py-2 text-right text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(footTarget)}</td>
-                                    <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{formatRupiahFull(footReal)}</td>
+                                    <td className="px-4 py-2 text-right text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(footTarget)}</td>
+                                    <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(footReal)}</td>
                                     <td className={cn("px-3 py-2 text-right text-xs font-black tabular-nums", footAch >= 1 ? "text-green-600" : footAch >= 0.8 ? "text-orange-500" : "text-red-600")}>
                                       {typeof footAch === "number" && !isNaN(footAch) ? (footAch * 100).toFixed(1).replace(".", ",") : "0"}%
                                     </td>
@@ -3697,8 +3739,8 @@ export default function EmbedPerforma() {
                           <td className="px-2 py-2.5 text-center tabular-nums text-foreground font-semibold text-sm">
                             {filteredAmData.reduce((s, r) => s + (r.customers || []).length, 0)}
                           </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground font-semibold text-sm whitespace-nowrap">{formatRupiahFull(totals.ytdTarget)}</td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-foreground font-bold text-sm whitespace-nowrap">{formatRupiahFull(totals.ytdReal)}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground font-semibold text-sm whitespace-nowrap">{fmtRupiah(totals.ytdTarget)}</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-foreground font-bold text-sm whitespace-nowrap">{fmtRupiah(totals.ytdReal)}</td>
                           {showCmCol && <td className={cn("px-3 py-2.5 text-right tabular-nums", totals.cmAch >= 100 ? "text-green-600" : totals.cmAch >= 80 ? "text-orange-500" : "text-red-600")}>
                             <div className="font-black text-sm">{typeof totals.cmAch === "number" && !isNaN(totals.cmAch) ? totals.cmAch.toFixed(1).replace(".", ",") : "0"}%</div>
                             <div className="text-[10px] font-semibold mt-0.5">{totals.cmAch >= 100 ? "Melebihi Target" : totals.cmAch >= 80 ? "Mendekati" : "Di Bawah Target"}</div>

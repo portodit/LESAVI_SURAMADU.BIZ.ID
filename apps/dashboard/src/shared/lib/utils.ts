@@ -22,7 +22,8 @@ export function formatPercent(value: number | null | undefined): string {
 }
 
 export function formatRupiahFull(value: number | null | undefined): string {
-  const v = value ?? 0;
+  const raw = value ?? 0;
+  const v = Number(raw);
   if (!Number.isFinite(v)) return "Rp 0";
   return `Rp ${v.toLocaleString("id-ID")}`;
 }
