@@ -1655,14 +1655,19 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
     </div>
   );
 
-  return (
-    <div className="p-4 space-y-4">
-      {/* Filter bar — rendered inline */}
-      <div className="bg-card border border-border rounded-xl px-4 py-3">
-        {navbarFilterBar}
-      </div>
+  const funnelNavbarPortalEl = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = document.getElementById("funnel-navbar-portal");
+    if (el) funnelNavbarPortalEl.current = el;
+  }, []);
 
-      {/* ── Active filter chips — always visible ── */}
+  return (
+    <>
+      {/* Portal filter bar into navbar */}
+      {funnelNavbarPortalEl.current && createPortal(navbarFilterBar, funnelNavbarPortalEl.current)}
+
+      <div className="p-4 space-y-4">
+      {/* ── Active filter chips — always visible below navbar ── */}
       <div className="flex items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] bg-card border border-border rounded-xl px-4 py-2.5">
         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide shrink-0">Filter aktif:</span>
         {/* Periode — always shows */}
@@ -2002,6 +2007,7 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
       )}
 
     </div>
+    </>
   );
 }
 
