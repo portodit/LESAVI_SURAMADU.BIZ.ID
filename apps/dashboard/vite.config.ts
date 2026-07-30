@@ -59,18 +59,6 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
-    proxy: {
-      "/api": {
-<<<<<<< HEAD
-        target: "http://127.0.0.1:8080",
-=======
-        target: "http://127.0.0.1:3002",
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
-        changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path,
-      },
-    },
   },
   preview: {
     port,

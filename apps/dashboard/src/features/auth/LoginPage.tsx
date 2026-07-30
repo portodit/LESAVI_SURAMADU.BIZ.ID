@@ -12,12 +12,6 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  React.useEffect(() => {
-    if (user && !isAuthLoading) {
-      setLocation("/dashboard");
-    }
-  }, [user, isAuthLoading, setLocation]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -31,7 +25,12 @@ export default function Login() {
     }
   };
 
-  if (isAuthLoading) return null;
+  // Redirect immediately after login succeeds (toast handles async)
+  React.useEffect(() => {
+    if (user) {
+      setLocation("/dashboard");
+    }
+  }, [user, setLocation]);
 
   return (
     <div className="relative flex min-h-screen w-full overflow-hidden">

@@ -670,10 +670,7 @@ export default function ActivityPage() {
   const [selectedAms, setSelectedAms] = useState<Set<string> | null>(null);
   const [selectedLabels, setSelectedLabels] = useState<Set<string> | null>(null);
   const [expandAll, setExpandAll] = useState<boolean | null>(null);
-<<<<<<< HEAD
   const [sortBy, setSortBy] = useState<"name"|"kpi-desc"|"kpi-asc">("name");
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   const snapInitialized = useRef(false);
   const labelsInitialized = useRef(false);
   const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
@@ -788,7 +785,6 @@ export default function ActivityPage() {
         return false;
       });
 
-<<<<<<< HEAD
     // Sort AMs
     const getKpiCount = (ma) => {
       const existing = byAmMap[ma.nama];
@@ -803,9 +799,6 @@ export default function ActivityPage() {
       return sortBy === "kpi-desc" ? kpiB - kpiA : kpiA - kpiB;
     });
     return sortedMaster.map(ma => {
-=======
-    return masterFiltered.map(ma => {
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       const existing = byAmMap[ma.nama];
       if (existing) {
         let acts = existing.activities;
@@ -1065,7 +1058,6 @@ export default function ActivityPage() {
                 <button onClick={() => setSearch("")} className="text-muted-foreground hover:text-foreground shrink-0 text-xs leading-none">✕</button>
               )}
             </div>
-<<<<<<< HEAD
             <select
                 value={sortBy}
                 onChange={e => setSortBy(e.target.value as any)}
@@ -1077,10 +1069,6 @@ export default function ActivityPage() {
               </select>
               <button
                 onClick={() => setExpandAll(prev => prev === true ? false : true)}
-=======
-            <button
-              onClick={() => setExpandAll(prev => prev === true ? false : true)}
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
               className="h-8 px-3 rounded-lg text-xs font-semibold border border-border bg-secondary hover:border-primary/40 hover:text-primary text-foreground transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               {expandAll === true

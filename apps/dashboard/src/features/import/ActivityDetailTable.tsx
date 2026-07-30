@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { createPortal } from "react-dom";
-import { Loader2, Search, Filter, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { Loader2, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -20,21 +19,12 @@ export interface ActivityRow {
   nik: string | null;
   fullname: string | null;
   divisi: string | null;
-  segmen: string | null;
-  regional: string | null;
-  witel: string | null;
   nipnas: string | null;
   caName: string | null;
   activityType: string | null;
   label: string | null;
   lopid: string | null;
-  createdatActivity: string | null;
-  activityStartDate: string | null;
   activityEndDate: string | null;
-  picName: string | null;
-  picJobtitle: string | null;
-  picRole: string | null;
-  picPhone: string | null;
   activityNotes: string | null;
   snapshotDate: string | null;
   importId: number | null;
@@ -42,6 +32,7 @@ export interface ActivityRow {
 }
 
 type EditCell = { rowId: number; field: string } | null;
+type SortDir = "asc" | "desc" | null;
 
 interface FilterCol {
   field: string;
@@ -56,21 +47,12 @@ const COLUMNS: FilterCol[] = [
   { field: "nik", label: "NIK", width: "100px" },
   { field: "fullname", label: "Nama AM", width: "140px" },
   { field: "divisi", label: "Divisi", width: "70px", categorical: true, options: DIVISI_OPTIONS },
-  { field: "segmen", label: "Segmen", width: "90px", categorical: true },
-  { field: "regional", label: "Regional", width: "90px", categorical: true },
-  { field: "witel", label: "Witel", width: "90px", categorical: true },
   { field: "nipnas", label: "NIPNAS", width: "100px" },
   { field: "caName", label: "CA Name", width: "140px" },
   { field: "activityType", label: "Tipe Aktivitas", width: "130px", categorical: true, options: ACTIVITY_TYPES },
   { field: "label", label: "Label", width: "140px", categorical: true },
   { field: "lopid", label: "LOP ID", width: "90px" },
-  { field: "createdatActivity", label: "Tgl Aktivitas", width: "110px" },
-  { field: "activityStartDate", label: "Start Date", width: "100px" },
-  { field: "activityEndDate", label: "End Date", width: "100px" },
-  { field: "picName", label: "PIC Name", width: "120px" },
-  { field: "picJobtitle", label: "PIC Jobtitle", width: "120px" },
-  { field: "picRole", label: "PIC Role", width: "110px", categorical: true },
-  { field: "picPhone", label: "PIC Phone", width: "110px" },
+  { field: "activityEndDate", label: "Tgl Aktivitas", width: "110px" },
   { field: "activityNotes", label: "Catatan", width: "180px", isTextarea: true },
   { field: "snapshotDate", label: "Snapshot Date", width: "100px" },
 ];
@@ -83,7 +65,6 @@ function ColumnFilterPopup({
   onToggle,
   onClear,
   onSelectAll,
-  anchorRect,
   onClose,
 }: {
   field: string;
@@ -92,14 +73,12 @@ function ColumnFilterPopup({
   onToggle: (val: string) => void;
   onClear: () => void;
   onSelectAll: () => void;
-  anchorRect: DOMRect;
   onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const filtered = options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -108,28 +87,18 @@ function ColumnFilterPopup({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
-  const style: React.CSSProperties = {
-    position: "fixed",
-    top: anchorRect.bottom + 4,
-    left: Math.min(anchorRect.left, window.innerWidth - 260),
-    zIndex: 9999,
-  };
-
-  return createPortal(
+  return (
     <div
       ref={ref}
-      style={style}
-      className="bg-card border border-border rounded-xl shadow-2xl w-64 overflow-hidden"
+      className="absolute top-full left-0 mt-1 bg-card border border-border rounded-xl shadow-2xl w-64 overflow-hidden z-50"
       onMouseDown={e => e.stopPropagation()}
     >
-      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/30">
         <span className="text-xs font-semibold text-foreground">{COLUMNS.find(c => c.field === field)?.label}</span>
-        <button onMouseDown={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
-      {/* Search */}
       <div className="px-2 py-1.5 border-b border-border/50">
         <input
           autoFocus
@@ -140,18 +109,30 @@ function ColumnFilterPopup({
           onMouseDown={e => e.stopPropagation()}
         />
       </div>
-      {/* Actions */}
       <div className="flex gap-1 px-2 py-1.5 border-b border-border/50">
-        <button onMouseDown={e => { e.stopPropagation(); onSelectAll(); }} className="text-[10px] px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 transition-colors text-muted-foreground">Select All</button>
-        <button onMouseDown={e => { e.stopPropagation(); onClear(); }} className="text-[10px] px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 transition-colors text-muted-foreground">Clear</button>
+        <button
+          onMouseDown={e => { e.stopPropagation(); onSelectAll(); }}
+          className="text-[10px] px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 transition-colors text-muted-foreground"
+        >
+          Select All
+        </button>
+        <button
+          onMouseDown={e => { e.stopPropagation(); onClear(); }}
+          className="text-[10px] px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 transition-colors text-muted-foreground"
+        >
+          Clear
+        </button>
       </div>
-      {/* Options */}
       <div className="max-h-48 overflow-y-auto py-1">
         {filtered.length === 0 && (
           <div className="text-center py-4 text-xs text-muted-foreground">Tidak ada hasil</div>
         )}
         {filtered.map(opt => (
-          <label key={opt} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-secondary/30 cursor-pointer text-xs">
+          <label
+            key={opt}
+            className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-secondary/30 cursor-pointer text-xs"
+            onMouseDown={e => e.stopPropagation()}
+          >
             <input
               type="checkbox"
               checked={selected.has(opt)}
@@ -162,32 +143,30 @@ function ColumnFilterPopup({
           </label>
         ))}
       </div>
-      {/* Count */}
       <div className="px-3 py-1.5 border-t border-border/50 text-[10px] text-muted-foreground bg-secondary/10">
         {selected.size} dipilih dari {options.length} nilai
       </div>
-    </div>,
-    document.body
+    </div>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function ActivityDetailTable({ rows, importId }: { rows: ActivityRow[]; importId: number }) {
+export default function ActivityDetailTable({ rows, importId, search, onSearchChange }: { rows: ActivityRow[]; importId: number; search?: string; onSearchChange?: (v: string) => void }) {
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
   const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
-  const [activeFilter, setActiveFilter] = useState<{ field: string; rect: DOMRect } | null>(null);
+  const [activeFilterField, setActiveFilterField] = useState<string | null>(null);
   const [editCell, setEditCell] = useState<EditCell>(null);
   const [editValue, setEditValue] = useState("");
   const [originalValue, setOriginalValue] = useState("");
   const [saving, setSaving] = useState(false);
-  const [rowCount, setRowCount] = useState(rows.length);
   const [localRows, setLocalRows] = useState(rows);
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>(null);
 
-  // Sync when rows prop changes (e.g. re-fetch)
-  useEffect(() => { setLocalRows(rows); setRowCount(rows.length); }, [rows]);
+  const currentSearch = search ?? "";
 
-  // Build dropdown options per column from data
+  useEffect(() => { setLocalRows(rows); }, [rows]);
+
   const dropdownOptions = useMemo(() => {
     const opts: Record<string, string[]> = {};
     for (const col of COLUMNS) {
@@ -199,10 +178,9 @@ export default function ActivityDetailTable({ rows, importId }: { rows: Activity
     return opts;
   }, [rows]);
 
-  // Filter by search + column filters
   const filtered = useMemo(() => {
     let result = localRows;
-    const q = search.trim().toLowerCase();
+    const q = currentSearch.trim().toLowerCase();
     if (q) {
       result = result.filter(r =>
         COLUMNS.some(col => {
@@ -219,13 +197,22 @@ export default function ActivityDetailTable({ rows, importId }: { rows: Activity
       });
     }
     return result;
-  }, [localRows, search, columnFilters]);
+  }, [localRows, currentSearch, columnFilters]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const sorted = useMemo(() => {
+    if (!sortField || !sortDir) return filtered;
+    return [...filtered].sort((a, b) => {
+      const av = (a as any)[sortField] || "";
+      const bv = (b as any)[sortField] || "";
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, sortField, sortDir]);
 
-  // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, columnFilters]);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [columnFilters, sortField, sortDir]);
 
   const handleSave = useCallback(async () => {
     if (!editCell) return;
@@ -277,7 +264,16 @@ export default function ActivityDetailTable({ rows, importId }: { rows: Activity
     setColumnFilters(prev => ({ ...prev, [field]: new Set(opts) }));
   }, [dropdownOptions]);
 
-  // ─── Render a cell ───────────────────────────────────────────────────────────
+  const handleSort = useCallback((field: string) => {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : d === "desc" ? null : "asc");
+      if (sortDir === "desc") setSortField(null);
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  }, [sortField, sortDir]);
+
   function renderCell(row: ActivityRow, col: FilterCol) {
     const isEditing = editCell?.rowId === row.id && editCell?.field === col.field;
     const value: string = (row as any)[col.field] || "";
@@ -337,36 +333,6 @@ export default function ActivityDetailTable({ rows, importId }: { rows: Activity
 
   return (
     <div>
-      {/* Toolbar */}
-      <div className="flex items-center justify-between mb-3 gap-3">
-        <div className="text-xs text-muted-foreground">
-          {filtered.length !== rowCount
-            ? <span><strong className="text-foreground">{filtered.length}</strong> dari {rowCount} baris</span>
-            : <span><strong className="text-foreground">{rowCount}</strong> baris</span>
-          }
-          {Object.keys(columnFilters).length > 0 && (
-            <button
-              onClick={() => setColumnFilters({})}
-              className="ml-3 text-[10px] px-2 py-0.5 rounded border border-border hover:bg-secondary transition-colors text-muted-foreground"
-            >
-              Reset filter
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Cari semua kolom..."
-              className="pl-8 pr-3 h-8 text-xs border border-border rounded-lg bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary transition-all w-56"
-            />
-          </div>
-        </div>
-      </div>
-
       {/* Table */}
       <div className="overflow-x-auto border border-border rounded-xl">
         <table className="w-full text-left text-xs">
@@ -375,7 +341,12 @@ export default function ActivityDetailTable({ rows, importId }: { rows: Activity
               <th className="px-3 py-2.5 w-12 text-center border-r border-border/40">#</th>
               {COLUMNS.map(col => {
                 const hasFilter = (columnFilters[col.field]?.size ?? 0) > 0;
-                const isActive = activeFilter?.field === col.field;
+                const isFilterActive = activeFilterField === col.field;
+                const opts = col.options || dropdownOptions[col.field] || [];
+                const isSorted = sortField === col.field;
+                const canSort = true;
+                const canFilter = opts.length > 0;
+
                 return (
                   <th
                     key={col.field}
@@ -383,23 +354,58 @@ export default function ActivityDetailTable({ rows, importId }: { rows: Activity
                     style={{ minWidth: col.width, width: col.width }}
                   >
                     <div className="flex items-center gap-1">
-                      <span className="truncate">{col.label}</span>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = (e.currentTarget).getBoundingClientRect();
-                          setActiveFilter(isActive ? null : { field: col.field, rect });
-                        }}
+                        onClick={() => canSort && handleSort(col.field)}
                         className={cn(
-                          "shrink-0 p-0.5 rounded transition-colors",
-                          hasFilter ? "text-primary bg-primary/10" : "text-muted-foreground/40 hover:text-muted-foreground",
+                          "flex items-center gap-0.5 truncate transition-colors",
+                          isSorted ? "text-foreground" : "hover:text-foreground text-muted-foreground"
                         )}
-                        title={`Filter ${col.label}`}
+                        title={canSort ? `Sortir ${col.label}` : undefined}
                       >
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                          <path d="M7 2a1 1 0 0 1 2 0v1H7V2zM5 4a1 1 0 0 0-2 0v8a1 1 0 0 0 2 0V4zm5 3a1 1 0 0 0-2 0v5a1 1 0 0 0 2 0V7zm1-4H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1z"/>
-                        </svg>
+                        <span>{col.label}</span>
+                        {canSort && (
+                          <span className="shrink-0">
+                            {isSorted
+                              ? sortDir === "asc"
+                                ? <ChevronUp className="w-3 h-3" />
+                                : sortDir === "desc"
+                                  ? <ChevronDown className="w-3 h-3" />
+                                  : <ChevronsUpDown className="w-3 h-3 opacity-30" />
+                              : <ChevronsUpDown className="w-3 h-3 opacity-30" />
+                            }
+                          </span>
+                        )}
                       </button>
+                      {canFilter && (
+                        <div className="relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveFilterField(isFilterActive ? null : col.field);
+                            }}
+                            className={cn(
+                              "shrink-0 p-0.5 rounded transition-colors",
+                              hasFilter ? "text-primary bg-primary/10" : "text-muted-foreground/40 hover:text-muted-foreground",
+                            )}
+                            title={`Filter ${col.label}`}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M7 2a1 1 0 0 1 2 0v1H7V2zM5 4a1 1 0 0 0-2 0v8a1 1 0 0 0 2 0V4zm5 3a1 1 0 0 0-2 0v5a1 1 0 0 0 2 0V7zm1-4H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1z"/>
+                            </svg>
+                          </button>
+                          {isFilterActive && (
+                            <ColumnFilterPopup
+                              field={col.field}
+                              options={opts}
+                              selected={columnFilters[col.field] || new Set()}
+                              onToggle={(val) => handleFilterToggle(col.field, val)}
+                              onClear={() => handleFilterClear(col.field)}
+                              onSelectAll={() => handleFilterSelectAll(col.field)}
+                              onClose={() => setActiveFilterField(null)}
+                            />
+                          )}
+                        </div>
+                      )}
                     </div>
                   </th>
                 );
@@ -486,25 +492,6 @@ export default function ActivityDetailTable({ rows, importId }: { rows: Activity
           </button>
         </div>
       </div>
-
-      {/* Active filter popup */}
-      {activeFilter && (() => {
-        const col = COLUMNS.find(c => c.field === activeFilter.field)!;
-        const opts = col.options || dropdownOptions[activeFilter.field] || [];
-        if (opts.length === 0) return null;
-        return (
-          <ColumnFilterPopup
-            field={activeFilter.field}
-            options={opts}
-            selected={columnFilters[activeFilter.field] || new Set()}
-            onToggle={(val) => handleFilterToggle(activeFilter.field, val)}
-            onClear={() => handleFilterClear(activeFilter.field)}
-            onSelectAll={() => handleFilterSelectAll(activeFilter.field)}
-            anchorRect={activeFilter.rect}
-            onClose={() => setActiveFilter(null)}
-          />
-        );
-      })()}
 
       {/* Saving indicator */}
       {saving && (

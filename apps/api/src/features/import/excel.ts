@@ -27,25 +27,17 @@ export function getWorkbookSheetNames(buffer: Buffer): string[] {
 }
 
 export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[] {
-<<<<<<< HEAD
   // raw:true on workbook read is critical: without it, XLSX formats date cells to
   // locale-aware strings ("7/24/2026") instead of preserving Date objects.
   // cellDates:true converts date serial numbers → Date objects, raw:true preserves them.
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: true });
-=======
-  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: false });
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   const resolvedSheet = sheetName && workbook.SheetNames.includes(sheetName)
     ? sheetName
     : workbook.SheetNames[0];
   const worksheet = workbook.Sheets[resolvedSheet];
 
   // Smart parsing: detect title row (row 0 has only 1 non-null cell, rest null)
-<<<<<<< HEAD
   const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, raw: true }) as any[][];
-=======
-  const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, raw: false }) as any[][];
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   if (rawRows.length < 2) return [];
 
   const row0 = rawRows[0] as any[];
@@ -60,22 +52,17 @@ export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[
       .map(row => {
         const obj: ParsedRow = {};
         headers.forEach((h, i) => {
-<<<<<<< HEAD
           if (h) {
             // Normalize header: trim, remove extra spaces, uppercase
             // Cell values (row[i]) are preserved as-is including Date objects
             const normalized = String(h).trim().replace(/\s+/g, " ").toUpperCase();
             obj[normalized] = row[i] ?? null;
           }
-=======
-          if (h) obj[h] = row[i] ?? null;
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
         });
         return obj;
       });
   }
 
-<<<<<<< HEAD
   // Normal parsing (first row is header) — raw:true preserves Date objects
   const rows = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: true }) as ParsedRow[];
   return rows.map(row => {
@@ -85,10 +72,6 @@ export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[
     }
     return normalized;
   });
-=======
-  // Normal parsing (first row is header)
-  return XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: false }) as ParsedRow[];
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 }
 
 /**
@@ -119,14 +102,10 @@ export function parseRaw2DArray(rawRows: any[][]): ParsedRow[] {
     .map(row => {
       const obj: ParsedRow = {};
       headers.forEach((h, i) => {
-<<<<<<< HEAD
         if (h != null && h !== "") {
           const normalized = String(h).trim().replace(/\s+/g, " ").toUpperCase();
           obj[normalized] = row[i] ?? null;
         }
-=======
-        if (h != null && h !== "") obj[String(h)] = row[i] ?? null;
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       });
       return obj;
     });
@@ -180,7 +159,6 @@ export function detectPeriodFromUrl(url: string): string | null {
   return null;
 }
 
-<<<<<<< HEAD
 /**
  * Get column value from a ParsedRow by trying multiple key variants.
  * Normalizes keys internally so callers can use any casing.
@@ -205,8 +183,6 @@ function getCol(row: ParsedRow, ...keys: string[]): any {
   return undefined;
 }
 
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 export function extractSnapshotDateFromUrl(url: string): string | null {
   // Returns YYYY-MM-DD from YYYYMMDD in filename (handles with or without extension)
   const match = url.match(/[_-](\d{8})(?:[._?&\s]|$)/);
@@ -321,28 +297,15 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
 
   for (const r of rows) {
     // ── STEP 1: Filter witel = SURAMADU
-<<<<<<< HEAD
     const witel = cleanUpper(r.WITEL);
     if (!opts?.skipWitelFilter && !witel.includes("SURAMADU")) continue;
 
     // ── STEP 2: Filter divisi = DPS / DSS
     const divisi = clean(r.DIVISI).toUpperCase();
-=======
-    // skipWitelFilter: include all LOPs for the AM regardless of customer witel
-    // (AMs may manage projects in other witel areas — e.g. NI MADE handles PLN NPS in Maluku)
-    const witel = cleanUpper(r.witel);
-    if (!opts?.skipWitelFilter && !witel.includes("SURAMADU")) continue;
-
-    // ── STEP 2: Filter divisi = DPS / DSS (Witel Suramadu tidak handle DGS)
-    // NOTE: In GSheets nationwide funnel, divisi = business segment (RSMES etc), NOT AM divisi.
-    // Skip this filter when importing from GSheets — rely on activeNikSet instead.
-    const divisi = clean(r.divisi).toUpperCase();
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     const VALID_DIVISI = new Set(["DPS", "DSS"]);
     if (!opts?.skipDivisiFilter && !VALID_DIVISI.has(divisi)) continue;
 
     // ── STEP 3: NIK AM extraction
-<<<<<<< HEAD
     let nikRaw: number | null;
     if (opts?.pembuatOnly) {
       nikRaw = toIntSafe(r.NIK_PEMBUAT_LOP);
@@ -356,46 +319,16 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
 
     // Reni (850099) → Havea (870022): Power BI applies this only for report_date.Year >= 2026
     const reportDateForNik = parseDate(r.REPORT_DATE);
-=======
-    // pembuatOnly: use ONLY nik_pembuat_lop — discard non-numeric (Power BI: Int64 + RemoveRowsWithErrors)
-    // preferPembuat: nik_pembuat_lop first, nik_handling[0] as fallback
-    // default: nik_handling[0] first, nik_pembuat_lop as fallback (Excel/Power BI detail export)
-    let nikRaw: number | null;
-    if (opts?.pembuatOnly) {
-      nikRaw = toIntSafe(r.nik_pembuat_lop); // ONLY pembuat — non-numeric = skip row
-    } else {
-      const nikHandlingFirst = String(r.nik_handling ?? "").split(",")[0].trim();
-      nikRaw = opts?.preferPembuat
-        ? (toIntSafe(r.nik_pembuat_lop) ?? toIntSafe(nikHandlingFirst))
-        : (toIntSafe(nikHandlingFirst) ?? toIntSafe(r.nik_pembuat_lop));
-    }
-    if (nikRaw === null) continue; // skip rows with non-numeric NIK
-
-    // Reni (850099) → Havea (870022): Power BI applies this only for report_date.Year >= 2026
-    // When pembuatOnly=true we honour the conditional; otherwise map unconditionally for safety
-    const reportDateForNik = parseDate(r.report_date);
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     const reportYearForNik = reportDateForNik ? parseInt(reportDateForNik.slice(0, 4), 10) : 0;
     let nikAm = String(nikRaw);
     if (nikAm === "850099" && (!opts?.pembuatOnly || reportYearForNik >= 2026)) nikAm = "870022";
 
-<<<<<<< HEAD
     // ── STEP 4: Reject garbage NIKs
     if (nikAm.length < 4 || Number(nikAm) > 9999999) continue;
 
     // ── STEP 5: Filter is_report = 'Y'
     if (!opts?.skipIsReportFilter) {
       const isReportRaw = r.IS_REPORT ?? null;
-=======
-    // ── STEP 4: Reject garbage NIKs (too short or clearly invalid)
-    if (nikAm.length < 4 || Number(nikAm) > 9999999) continue;
-
-    // ── STEP 5: Filter is_report = 'Y'
-    // skipIsReportFilter: skip filter entirely (Power BI behaviour — show all LOPs regardless of is_report)
-    // strictIsReport: reject rows where is_report is null/empty (treat as not-Y)
-    if (!opts?.skipIsReportFilter) {
-      const isReportRaw = r.is_report ?? r.IS_REPORT ?? r.isReport ?? null;
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       if (opts?.strictIsReport) {
         const isReportStr = isReportRaw !== null && isReportRaw !== undefined && isReportRaw !== ""
           ? String(isReportRaw).trim().toUpperCase() : "";
@@ -406,7 +339,6 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
       }
     }
 
-<<<<<<< HEAD
     // ── STEP 6: Fix AM name — RENI WULANSARI → HAVEA PERTIWI
     let namaAm = cleanUpper(r.NAMA_PEMBUAT_LOP);
     if (namaAm === "RENI WULANSARI" && (!opts?.pembuatOnly || reportYearForNik >= 2026)) namaAm = "HAVEA PERTIWI";
@@ -419,27 +351,11 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
     // Tahun Anggaran
     const taParsed = parseInt(String(
       r.TAHUN_ANGGARAN ?? ""
-=======
-    // ── STEP 6: Fix AM name — RENI WULANSARI → HAVEA PERTIWI (unconditional)
-    let namaAm = cleanUpper(r.nama_pembuat_lop);
-    // Reni→Havea for nama: same conditional as NIK (pembuatOnly: year>=2026 only; else unconditional)
-    if (namaAm === "RENI WULANSARI" && (!opts?.pembuatOnly || reportYearForNik >= 2026)) namaAm = "HAVEA PERTIWI";
-
-    const lopid = clean(r.lopid);
-    if (!lopid) continue; // skip rows without lopid
-
-    const reportDate = parseDate(r.report_date);
-
-    // Tahun Anggaran: try explicit column first, fallback to report_date year
-    const taParsed = parseInt(String(
-      r.TAHUN_ANGGARAN ?? r.tahun_anggaran ?? r["Tahun Anggaran"] ?? r["TAHUN ANGGARAN"] ?? ""
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     ).trim(), 10);
     const tahunAnggaran: number | null = !isNaN(taParsed) && taParsed > 2000
       ? taParsed
       : (reportDate ? parseInt(reportDate.slice(0, 4), 10) || null : null);
 
-<<<<<<< HEAD
     // month_subs: try multiple possible column names
     let monthSubsVal: number | null = null;
     const monthSubsRaw = r.MONTH_SUBS ?? r["MONTH SUBS"] ?? r["RENcana DURASI KONTRAK"] ?? r.RENCANA_DURASI_KONTRAK ?? null;
@@ -471,41 +387,6 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
       namaPembuatLop: clean(r.NAMA_PEMBUAT_LOP),
       reportDate,
       createdDate: parseDate(r.CREATED_DATE) || clean(r.CREATED_DATE),
-=======
-    passed.push({
-      lopid,
-      judulProyek: clean(r.judul_proyek),
-      pelanggan: cleanUpper(r.pelanggan) || "–",
-      nilaiProyek: parseFloat(String(r.nilai_proyek ?? 0)) || 0,
-      estRev: parseIndonesianNumber(r[" est_rev "] ?? r.est_rev ?? r["est_rev"] ?? 0),
-      divisi,
-      segmen: clean(r.segmen),
-      witel,
-      statusF: clean(r.status_f),
-      proses: clean(r.proses),
-      statusProyek: clean(r.status_proyek),
-      kategoriKontrak: clean(r.kategori_kontrak) || "–",
-      projectType: clean(r.project_type),
-      isReport: clean(r.is_report).toUpperCase(),
-      estimateBulan: parseDate(r.estimate_bulan_billcomp) || clean(r.estimate_bulan_billcomp),
-      monthSubs: r.month_subs != null
-        ? (parseInt(String(r.month_subs), 10) || null)
-        : r["Month Subs"] != null
-          ? (parseInt(String(r["Month Subs"]), 10) || null)
-          : r.rencana_durasi_kontrak != null
-            ? (parseInt(String(r.rencana_durasi_kontrak), 10) || null)
-            : r["Rencana Durasi Kontrak"] != null
-              ? (parseInt(String(r["Rencana Durasi Kontrak"]), 10) || null)
-              : r["rencana durasi kontrak"] != null
-                ? (parseInt(String(r["rencana durasi kontrak"]), 10) || null)
-                : null,
-      namaAm,
-      nikAm,
-      nikHandling: clean(r.nik_handling),
-      namaPembuatLop: clean(r.nama_pembuat_lop),
-      reportDate,
-      createdDate: parseDate(r.created_date) || clean(r.created_date),
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       tahunAnggaran,
     });
   }
@@ -545,7 +426,6 @@ function parseRawDateTimeStr(val: any): string {
   }
   const s = String(val).trim();
   if (!s) return "";
-<<<<<<< HEAD
 
   // Excel serial number (e.g. 45623.52083) — dari Google Sheets SERIAL_NUMBER option
   const num = parseFloat(s);
@@ -567,8 +447,6 @@ function parseRawDateTimeStr(val: any): string {
     }
   }
 
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   // Jika sudah dalam format datetime ISO/SQL, kembalikan apa adanya (ganti T dengan spasi)
   if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s)) return s.replace("T", " ").slice(0, 19);
   // Format US: "M/D/YYYY H:MM:SS AM/PM" (dari XLSX raw:false)
@@ -611,16 +489,10 @@ export interface CleanedActivityRow {
  * Prosedur cleaning data Sales Activity — mengikuti langkah Power Query Power BI:
  *
  * 1. Filter witel = SURAMADU (contains, case-insensitive)
-<<<<<<< HEAD
  * 2. Filter divisi = "DPS", "DSS", atau "DGS"
  * 3. Validasi NIK numerik (Int64 — baris dengan NIK non-numerik di-skip)
  * 4. Timestamp diambil dari kolom activity_end_date (tanggal aktivitas aktual, BUKAN createdat yang adalah tanggal import)
  * 5. activity_start_date dan activity_end_date juga disimpan lengkap
-=======
- * 2. Filter divisi = "DPS" atau "DSS"
- * 3. Validasi NIK numerik (Int64 — baris dengan NIK non-numerik di-skip)
- * 4. Simpan datetime penuh (termasuk jam) untuk createdat, start_date, end_date
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
  *
  * TIDAK ada filter fullname — Power BI tidak men-drop baris dengan fullname kosong.
  * TIDAK ada dedup — dedup dilakukan di DB layer via unique constraint (nik, createdat_activity).
@@ -628,285 +500,34 @@ export interface CleanedActivityRow {
 export function cleanActivityRows(rows: ParsedRow[]): CleanedActivityRow[] {
   return rows
     .map(r => {
-<<<<<<< HEAD
       // ── STEP 1: Filter witel = SURAMADU AND divisi = DPS/DSS
       const witel = cleanUpper(getCol(r, "witel", "WITEL"));
       const divisi = clean(getCol(r, "divisi", "DIVISI")).toUpperCase();
-=======
-      // ── STEP 1: Filter witel = SURAMADU AND divisi = DPS/DSS (Witel Suramadu tidak handle DGS)
-      const witel = cleanUpper(r.witel);
-      const divisi = clean(r.divisi).toUpperCase();
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 
       if (!witel.includes("SURAMADU")) return null;
       if (divisi !== "DPS" && divisi !== "DSS") return null;
 
       // ── STEP 2: Validasi NIK numerik
-<<<<<<< HEAD
       const nikRaw = toIntSafe(getCol(r, "nik", "NIK"));
       if (nikRaw === null) return null;
 
       // ── STEP 3: fullname boleh kosong
       const fullname = clean(getCol(r, "fullname", "FULLNAME"));
-=======
-      // Power BI menggunakan Int64.Type untuk kolom nik — baris dengan NIK tidak-numerik
-      // menghasilkan error dan di-drop oleh RemoveRowsWithErrors (jika ada) atau diabaikan.
-      const nikRaw = toIntSafe(r.nik);
-      if (nikRaw === null) return null;
-
-      // ── STEP 3: fullname boleh kosong (tidak di-filter Power BI)
-      const fullname = clean(r.fullname);
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 
       return {
         nik: String(nikRaw),
         fullname,
         divisi,
-<<<<<<< HEAD
-        segmen: clean(getCol(r, "segmen", "SEGMEN")),
-        regional: clean(getCol(r, "regional", "REGIONAL")),
-        witel,
         nipnas: clean(getCol(r, "nipnas", "NIPNAS")),
         caName: cleanUpper(getCol(r, "ca_name", "CA_NAME")) || "",
         activityType: clean(getCol(r, "activity_type", "ACTIVITY_TYPE")),
         label: clean(getCol(r, "label", "LABEL")),
         lopid: clean(getCol(r, "lopid", "LOPID")),
-        createdatActivity: parseRawDateTimeStr(getCol(r, "activity_end_date", "ACTIVITY_END_DATE")),
-        activityStartDate: parseRawDateTimeStr(getCol(r, "activity_start_date", "ACTIVITY_START_DATE")),
         activityEndDate: parseRawDateTimeStr(getCol(r, "activity_end_date", "ACTIVITY_END_DATE")),
-        picName: clean(getCol(r, "pic_name", "PIC_NAME")),
-        picJobtitle: clean(getCol(r, "pic_jobtitle", "PIC_JOBTITLE")),
-        picRole: clean(getCol(r, "pic_role", "PIC_ROLE")),
-        picPhone: clean(getCol(r, "pic_phone", "PIC_PHONE")),
         activityNotes: clean(getCol(r, "activity_notes", "ACTIVITY_NOTES")),
       };
     })
     .filter((row): row is CleanedFunnelRow => row !== null);
-=======
-        segmen: clean(r.segmen),
-        regional: clean(r.regional),
-        witel,
-        nipnas: clean(r.nipnas),
-        caName: cleanUpper(r.ca_name) || "",
-        activityType: clean(r.activity_type),
-        label: clean(r.label),
-        lopid: clean(r.lopid),
-        // ── Simpan datetime penuh (jam:menit:detik), bukan date-only
-        createdatActivity: parseRawDateTimeStr(r.createdat),
-        activityStartDate: parseRawDateTimeStr(r.activity_start_date),
-        activityEndDate: parseRawDateTimeStr(r.activity_end_date),
-        picName: clean(r.pic_name),
-        picJobtitle: clean(r.pic_jobtitle),
-        picRole: clean(r.pic_role),
-        picPhone: clean(r.pic_phone),
-        activityNotes: clean(r.activity_notes),
-      };
-    })
-    .filter((row): row is CleanedActivityRow => row !== null);
-}
-
-// ── Pivot Cache Excel Parser ───────────────────────────────────────────────────
-// Parses .xlsx files that store data as pivot cache (pivotCacheDefinition{N}.xml
-// + pivotCacheRecords{N}.xml) instead of flat sheets.
-//
-// Format: each <r> element in pivotCacheRecords is a row, each <x> is a shared-item
-// index, each <n> is a numeric value, each <s> is an inline string, <m/> is null.
-//
-// Cache 1 = Perf. AM (36 fields, per-AM × per-pelanggan, NIK+NAMA_AM present)
-// Cache 2 = Perf. CC (31 fields, per-CC tanpa AM attribution)
-
-interface CacheField {
-  name: string;
-  sharedItems: string[] | null; // null = numeric field
-}
-
-interface ParsedCache {
-  fields: CacheField[];
-  records: Record<string, any>[];
-  recordCount: number;
-}
-
-const PIVOT_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-
-/** Extract all child element values from a pivot cache record element */
-function parseRecordCells(recordElem: Element, fieldCount: number, sharedMaps: (string[] | null)[]): Record<string, any> {
-  const row: Record<string, any> = {};
-  const children = Array.from(recordElem.children);
-  for (let vi = 0; vi < Math.min(children.length, fieldCount); vi++) {
-    const child = children[vi];
-    const tag = child.tag.split("}")[1] ?? child.tag;
-    if (tag === "x") {
-      const idx = parseInt(child.getAttribute("v") ?? "0", 10);
-      const sm = sharedMaps[vi];
-      row[vi] = sm && idx < sm.length ? sm[idx] : null;
-    } else if (tag === "n") {
-      row[vi] = parseFloat(child.getAttribute("v") ?? "0");
-    } else if (tag === "s") {
-      row[vi] = child.getAttribute("v") ?? "";
-    } else if (tag === "m") {
-      row[vi] = null; // null/missing
-    } else {
-      row[vi] = null;
-    }
-  }
-  return row;
-}
-
-/**
- * Parse a pivot cache from an xlsx buffer.
- * Returns field metadata and flat row objects (indexed by field position, use fields[] to map).
- *
- * Cache selection:
- * - cacheIndex 1 = first pivot cache (in PERFORMANSI RLEGS = Perf. CC, 31 fields, no AM)
- * - cacheIndex 2 = second pivot cache (in PERFORMANSI RLEGS = Perf. AM, 36 fields, with AM)
- */
-export async function parsePivotCache(buffer: Buffer, cacheIndex: 1 | 2 = 2): Promise<ParsedCache> {
-  const zip = await JSZip.loadAsync(buffer as unknown as NodeJS.ReadableStreamParameter);
-  const zipFiles: Record<string, string> = {};
-  await Promise.all(
-    Object.keys(zip.files).map(async (name) => {
-      zipFiles[name] = await zip.files[name].async("string");
-    })
-  );
-
-  // Find pivot cache definition file
-  const defPattern = `xl/pivotCache/pivotCacheDefinition${cacheIndex}.xml`;
-  const defContent = zipFiles[defPattern];
-  if (!defContent) {
-    // Try alternative path patterns
-    const altPatterns = [
-      `xl/pivotCache/pivotCacheDefinition${cacheIndex}.xml`,
-      `xl/worksheets/pivotCacheDefinition${cacheIndex}.xml`,
-    ];
-    throw new Error(`Pivot cache ${cacheIndex} tidak ditemukan dalam file. Available: ${Object.keys(zipFiles).filter(k => k.includes('pivot') || k.includes('cache')).join(', ')}`);
-  }
-
-  // Parse definition XML using regex (faster, no external parser needed)
-  const fieldMatches: CacheField[] = [];
-
-  // Extract all cacheField blocks
-  const cacheFieldRegex = /<cacheField[^>]*name="([^"]+)"[^>]*>([\s\S]*?)<\/cacheField>/g;
-  let match: RegExpExecArray | null;
-  while ((match = cacheFieldRegex.exec(defContent)) !== null) {
-    const fieldName = match[1];
-    const fieldContent = match[2];
-    const siMatch = /<sharedItems[^>]*count="(\d+)"[^>]*>([\s\S]*?)<\/sharedItems>/.exec(fieldContent);
-    if (siMatch) {
-      const sItems = Array.from(fieldContent.matchAll(/<s[^>]*v="([^"]+)"/g)).map(m => m[1]);
-      fieldMatches.push({ name: fieldName, sharedItems: sItems });
-    } else {
-      fieldMatches.push({ name: fieldName, sharedItems: null });
-    }
-  }
-
-  // Fallback: parse with DOMParser if regex missed anything
-  if (fieldMatches.length === 0) {
-    const { DOMParser } = await import("@xmldom/xmldom" as string);
-    const doc = new DOMParser().parseFromString(defContent, "text/xml");
-    const ns = PIVOT_NS;
-    const cacheFields = doc.getElementsByTagName("cacheField");
-    for (let i = 0; i < cacheFields.length; i++) {
-      const cf = cacheFields[i] as Element;
-      const name = cf.getAttribute("name") ?? `field_${i}`;
-      const sharedEl = cf.getElementsByTagName("sharedItems")[0] as Element | undefined;
-      if (sharedEl) {
-        const sItems: string[] = [];
-        const sEls = sharedEl.getElementsByTagName("s");
-        for (let j = 0; j < sEls.length; j++) sItems.push((sEls[j] as Element).getAttribute("v") ?? "");
-        fieldMatches.push({ name, sharedItems: sItems });
-      } else {
-        fieldMatches.push({ name, sharedItems: null });
-      }
-    }
-  }
-
-  // Build shared maps for fast lookup
-  const sharedMaps = fieldMatches.map(f => f.sharedItems);
-
-  // Parse records
-  const recFile = `xl/pivotCache/pivotCacheRecords${cacheIndex}.xml`;
-  const recContent = zipFiles[recFile];
-  if (!recContent) throw new Error(`Pivot cache records ${cacheIndex} tidak ditemukan`);
-
-  // Extract recordCount from records XML
-  const countMatch = /count="(\d+)"/.exec(recContent.substring(0, 500));
-  const totalRecords = countMatch ? parseInt(countMatch[1], 10) : 0;
-
-  // Parse records via DOMParser (simpler than regex for nested XML)
-  const { DOMParser } = await import("@xmldom/xmldom" as string);
-  const recDoc = new DOMParser().parseFromString(recContent, "text/xml");
-  const ns = PIVOT_NS;
-  const recordElems = recDoc.getElementsByTagName("r");
-
-  const records: Record<string, any>[] = [];
-  const fieldCount = fieldMatches.length;
-
-  for (let ri = 0; ri < recordElems.length; ri++) {
-    const rec = recordElems[ri] as Element;
-    const children = Array.from(rec.children);
-    const row: Record<string, any> = {};
-    for (let vi = 0; vi < Math.min(children.length, fieldCount); vi++) {
-      const child = children[vi] as Element;
-      const tag = child.tagName; // without ns prefix
-      if (tag === "x") {
-        const idx = parseInt(child.getAttribute("v") ?? "0", 10);
-        const sm = sharedMaps[vi];
-        row[fieldMatches[vi].name] = sm && idx < sm.length ? sm[idx] : null;
-      } else if (tag === "n") {
-        row[fieldMatches[vi].name] = parseFloat(child.getAttribute("v") ?? "0");
-      } else if (tag === "s") {
-        row[fieldMatches[vi].name] = child.getAttribute("v") ?? "";
-      } else if (tag === "m") {
-        row[fieldMatches[vi].name] = null;
-      } else {
-        row[fieldMatches[vi].name] = null;
-      }
-    }
-    records.push(row);
-  }
-
-  return { fields: fieldMatches, records, recordCount: totalRecords };
-}
-
-/**
- * Detect if an xlsx buffer is a pivot-cache-format file (vs flat sheet).
- * Returns { isPivot: true, cacheCount: N } or { isPivot: false }.
- */
-export async function detectExcelFormat(buffer: Buffer): Promise<{ isPivot: boolean; cacheCount: number }> {
-  const zip = await JSZip.loadAsync(buffer as unknown as NodeJS.ReadableStreamParameter);
-  const pivotFiles = Object.keys(zip.files).filter(k => k.includes("pivotCacheDefinition"));
-  if (pivotFiles.length > 0) {
-    return { isPivot: true, cacheCount: pivotFiles.length };
-  }
-  return { isPivot: false, cacheCount: 0 };
-}
-
-/** Export pivot cache parsed rows to a clean flat Excel file (xlsx) */
-export function exportPivotCacheToXlsx(cache: ParsedCache, sheetName?: string): Buffer {
-  // Build header + data rows
-  const headers = cache.fields.map(f => f.name);
-  const dataRows = cache.records.map(rec =>
-    headers.map(h => rec[h] ?? null)
-  );
-
-  const wsData = [headers, ...dataRows];
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-  XLSX.utils.book_append_sheet(wb, ws, sheetName ?? "Pivot Cache Export");
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-}
-
-/** Convert parsed pivot cache rows to the same ParsedRow format used by existing import logic */
-export function pivotCacheRowsToParsedRows(cache: ParsedCache): ParsedRow[] {
-  return cache.records.map(rec => {
-    const row: ParsedRow = {};
-    for (const field of cache.fields) {
-      const val = rec[field.name];
-      row[field.name] = val ?? null;
-    }
-    return row;
-  });
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 }
 
 // ── Detect whether a Buffer is pivot-cache format ─────────────────────────────

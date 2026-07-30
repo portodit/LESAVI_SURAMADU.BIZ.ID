@@ -1,21 +1,13 @@
 import { Router, type IRouter } from "express";
-<<<<<<< HEAD
 import { db, dataImportsTable, performanceDataTable, salesFunnelTable, salesActivityTable, accountManagersTable, appSettingsTable, masterCustomerTable, pool } from "@workspace/db";
-=======
-import { db, dataImportsTable, performanceDataTable, salesFunnelTable, salesActivityTable, accountManagersTable, appSettingsTable, masterCustomerTable } from "@workspace/db";
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 import { desc, eq, and, sql } from "drizzle-orm";
 import { requireAuth } from "../../shared/auth";
 import {
   parseExcelFromUrl, parseExcelFromBase64,
   detectPeriod, extractSnapshotDateFromUrl, slugify,
   cleanFunnelRows, cleanActivityRows, parseIndonesianNumber,
-<<<<<<< HEAD
   detectExcelFormat, parsePivotCache, pivotCacheRowsToParsedRows,
   type ParsedRow, type PivotCacheResult
-=======
-  parsePivotCache, detectExcelFormat, pivotCacheRowsToParsedRows
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 } from "./excel";
 import { sendReminderToAllAMs } from "../telegram/service";
 
@@ -46,7 +38,6 @@ async function autoRegisterNewAms(entries: { nik: string; nama: string; divisi: 
 const router: IRouter = Router();
 
 // ── Helper: resolve rows from URL or base64 file ─────────────────────────────
-<<<<<<< HEAD
 async function resolveRows(body: any): Promise<{ rows: any[]; sourceUrl: string | null; snapshotDate: string | null; isPivotFormat: boolean }> {
   const { url, fileData, snapshotDate, sheetName } = body;
 
@@ -71,19 +62,6 @@ async function resolveRows(body: any): Promise<{ rows: any[]; sourceUrl: string 
     const rows = await parseExcelFromUrl(url, sheetName || undefined);
     const detectedDate = snapshotDate || extractSnapshotDateFromUrl(url);
     return { rows, sourceUrl: url, snapshotDate: detectedDate, isPivotFormat: false };
-=======
-async function resolveRows(body: any): Promise<{ rows: any[]; sourceUrl: string | null; snapshotDate: string | null }> {
-  const { url, fileData, snapshotDate, sheetName } = body;
-
-  if (fileData) {
-    const rows = parseExcelFromBase64(fileData, sheetName || undefined);
-    return { rows, sourceUrl: null, snapshotDate: snapshotDate || null };
-  }
-  if (url) {
-    const rows = await parseExcelFromUrl(url, sheetName || undefined);
-    const detectedDate = snapshotDate || extractSnapshotDateFromUrl(url);
-    return { rows, sourceUrl: url, snapshotDate: detectedDate };
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   }
   throw new Error("URL SharePoint atau file Excel diperlukan");
 }
@@ -99,16 +77,10 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
   let rows: any[];
   let sourceUrl: string | null;
   let snapshotDate: string | null;
-<<<<<<< HEAD
   let isPivotFormat = false;
 
   try {
     ({ rows, sourceUrl, snapshotDate, isPivotFormat } = await resolveRows(req.body));
-=======
-
-  try {
-    ({ rows, sourceUrl, snapshotDate } = await resolveRows(req.body));
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   } catch (e: any) {
     res.status(400).json({ error: e.message });
     return;
@@ -116,7 +88,6 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
 
   const rawCount = rows.length;
 
-<<<<<<< HEAD
   // ── Pivot cache format: NAMA_AM may be absent — resolve names via account_managers
   if (isPivotFormat) {
     const allAms = await db.select({ nik: accountManagersTable.nik, nama: accountManagersTable.nama }).from(accountManagersTable);
@@ -130,8 +101,6 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
     }
   }
 
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   // ── Detect format
   // RAW_WITH_AM: has PERIODE + NAMA_AM/NIK  (per-customer, AM already identified)
   // RAW_NO_AM:   has PERIODE + STANDARD_NAME but NO NAMA_AM/NIK (lookup AM via funnel)
@@ -264,11 +233,7 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       // disimpan sebagai rekord terpisah — bukan digabung jadi satu
       const key = `${nik}__${periodeStr}__${divisiRaw.toUpperCase()}`;
 
-<<<<<<< HEAD
       // Revenue per tipe — negatif mengurangi total (e.g. AM HANDIKA), bukan dijumlah
-=======
-      // Revenue per tipe
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       const tReg = parseIndonesianNumber(r.TARGET_REVENUE ?? r.target_revenue);
       const rReg = parseIndonesianNumber(r.REAL_REVENUE ?? r.real_revenue);
       const tSustain = parseIndonesianNumber(r.TARGET_SUSTAIN ?? r.target_sustain ?? 0);
@@ -278,16 +243,12 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       const tNgtma = parseIndonesianNumber(r.TARGET_NGTMA ?? r.target_ngtma ?? 0);
       const rNgtma = parseIndonesianNumber(r.REAL_NGTMA ?? r.real_ngtma ?? 0);
       const targetTotal = tReg + tSustain + tScaling + tNgtma;
-<<<<<<< HEAD
       // Sum positives first, then subtract negatives
       const realTotal = (
         Math.max(0, rReg) + Math.max(0, rSustain) + Math.max(0, rScaling) + Math.max(0, rNgtma)
       ) - (
         Math.abs(Math.min(0, rReg)) + Math.abs(Math.min(0, rSustain)) + Math.abs(Math.min(0, rScaling)) + Math.abs(Math.min(0, rNgtma))
       );
-=======
-      const realTotal = rReg + rSustain + rScaling + rNgtma;
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 
       // Customer info — semua kolom pelanggan disimpan
       const pelanggan = String(r.STANDARD_NAME || r.NAMA_PELANGGAN || r.PELANGGAN || r.pelanggan || r.nama_account || "").trim();
@@ -435,7 +396,6 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
 
   const BATCH_PERF = 200;
   for (let i = 0; i < toInsert.length; i += BATCH_PERF) {
-<<<<<<< HEAD
     const batch = toInsert.slice(i, i + BATCH_PERF);
     const num = batch.length;
 
@@ -505,10 +465,6 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
             r.achRate, r.achRateYtd, r.rankAch, r.statusWarna, r.snapshotDate, r.komponenDetail, imp.id]);
       }
     }
-=======
-    const batch = toInsert.slice(i, i + BATCH_PERF).map(row => ({ ...row, importId: imp.id }));
-    await db.insert(performanceDataTable).values(batch);
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   }
 
   // ── AM baru: langsung masuk accounts dengan aktif=false (tidak perlu konfirmasi)
@@ -538,16 +494,10 @@ router.post("/import/funnel", requireAuth, async (req, res): Promise<void> => {
   let rows: any[];
   let sourceUrl: string | null;
   let snapshotDate: string | null;
-<<<<<<< HEAD
   let isPivotFormat = false;
 
   try {
     ({ rows, sourceUrl, snapshotDate, isPivotFormat } = await resolveRows(req.body));
-=======
-
-  try {
-    ({ rows, sourceUrl, snapshotDate } = await resolveRows(req.body));
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   } catch (e: any) {
     res.status(400).json({ error: e.message });
     return;
@@ -719,11 +669,7 @@ router.post("/import/activity", requireAuth, async (req, res): Promise<void> => 
 
   const [imp] = await db.insert(dataImportsTable).values({
     type: "activity",
-<<<<<<< HEAD
     rowsImported: 0,
-=======
-    rowsImported: cleaned.length,
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     period: importPeriod,
     snapshotDate: snapshotDate || null,
     sourceUrl,
@@ -732,61 +678,40 @@ router.post("/import/activity", requireAuth, async (req, res): Promise<void> => 
 
   const BATCH_ACT = 200;
   for (let i = 0; i < cleaned.length; i += BATCH_ACT) {
-<<<<<<< HEAD
     const batch = cleaned.slice(i, i + BATCH_ACT);
 
     const nik_arr = batch.map(r => r.nik);
     const fullname_arr = batch.map(r => r.fullname || null);
     const divisi_arr = batch.map(r => r.divisi || null);
-    const segmen_arr = batch.map(r => r.segmen || null);
-    const regional_arr = batch.map(r => r.regional || null);
-    const witel_arr = batch.map(r => r.witel || null);
     const nipnas_arr = batch.map(r => r.nipnas || null);
     const caName_arr = batch.map(r => r.caName || null);
     const activityType_arr = batch.map(r => r.activityType || null);
     const label_arr = batch.map(r => r.label || null);
     const lopid_arr = batch.map(r => r.lopid || null);
-    const createdat_arr = batch.map(r => r.createdatActivity || null);
-    const startDate_arr = batch.map(r => r.activityStartDate || null);
     const endDate_arr = batch.map(r => r.activityEndDate || null);
-    const picName_arr = batch.map(r => r.picName || null);
-    const picJobtitle_arr = batch.map(r => r.picJobtitle || null);
-    const picRole_arr = batch.map(r => r.picRole || null);
-    const picPhone_arr = batch.map(r => r.picPhone || null);
     const notes_arr = batch.map(r => r.activityNotes || null);
     const snap_arr = batch.map(() => snapshotDate || null);
     const imp_arr = batch.map(() => imp.id);
 
     await pool.query(`
       INSERT INTO sales_activity
-        (nik,fullname,divisi,segmen,regional,witel,nipnas,ca_name,activity_type,label,lopid,
-         createdat_activity,activity_start_date,activity_end_date,pic_name,pic_jobtitle,
-         pic_role,pic_phone,activity_notes,snapshot_date,import_id)
+        (nik,fullname,divisi,nipnas,ca_name,activity_type,label,lopid,
+         activity_end_date,activity_notes,snapshot_date,import_id)
       SELECT * FROM UNNEST(
         $1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],
-        $8::text[],$9::text[],$10::text[],$11::text[],$12::text[],$13::text[],$14::text[],
-        $15::text[],$16::text[],$17::text[],$18::text[],$19::text[],$20::text[],$21::integer[]
-      ) AS t(nik,fullname,divisi,segmen,regional,witel,nipnas,ca_name,activity_type,label,lopid,
-               createdat_activity,activity_start_date,activity_end_date,pic_name,pic_jobtitle,
-               pic_role,pic_phone,activity_notes,snapshot_date,import_id)
-    `, [nik_arr, fullname_arr, divisi_arr, segmen_arr, regional_arr, witel_arr, nipnas_arr,
-        caName_arr, activityType_arr, label_arr, lopid_arr, createdat_arr, startDate_arr,
-        endDate_arr, picName_arr, picJobtitle_arr, picRole_arr, picPhone_arr, notes_arr,
-        snap_arr, imp_arr]);
+        $8::text[],$9::text[],$10::text[],$11::text[],$12::integer[]
+      ) AS t(nik,fullname,divisi,nipnas,ca_name,activity_type,label,lopid,
+               activity_end_date,activity_notes,snapshot_date,import_id)
+    `, [nik_arr, fullname_arr, divisi_arr, nipnas_arr, caName_arr, activityType_arr, label_arr,
+        lopid_arr, endDate_arr, notes_arr, snap_arr, imp_arr]);
   }
 
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(salesActivityTable).where(eq(salesActivityTable.importId, imp.id));
   await db.update(dataImportsTable).set({ rowsImported: count }).where(eq(dataImportsTable.id, imp.id));
 
-=======
-    const batch = cleaned.slice(i, i + BATCH_ACT).map(row => ({ ...row, snapshotDate: snapshotDate || null, importId: imp.id }));
-    await db.insert(salesActivityTable).values(batch);
-  }
-
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   // ── AM baru: langsung masuk accounts dengan aktif=false
   const newActAmCount = await autoRegisterNewAms(
-    cleaned.filter((r: any) => r.nik).map((r: any) => ({ nik: r.nik, nama: r.fullname || r.nik, divisi: r.divisi || "DPS", witel: r.witel || "SURAMADU" })),
+    cleaned.filter((r: any) => r.nik).map((r: any) => ({ nik: r.nik, nama: r.fullname || r.nik, divisi: r.divisi || "DPS", witel: "SURAMADU" })),
     "import_activity"
   );
 
@@ -798,19 +723,11 @@ router.post("/import/activity", requireAuth, async (req, res): Promise<void> => 
   }
 
   res.json({
-<<<<<<< HEAD
     success: true, rowsImported: count, amCount,
     period: importPeriod, snapshotDate,
     rawCount: rows.length,
     newAmDiscovered: newActAmCount,
     message: `${count} dari ${rows.length} baris activity berhasil diimport${newActAmCount > 0 ? `. ${newActAmCount} AM baru ditambahkan ke Manajemen Akun (nonaktif).` : ""}`,
-=======
-    success: true, rowsImported: cleaned.length, amCount,
-    period: importPeriod, snapshotDate,
-    rawCount: rows.length,
-    newAmDiscovered: newActAmCount,
-    message: `${cleaned.length} dari ${rows.length} baris activity berhasil diimport${newActAmCount > 0 ? `. ${newActAmCount} AM baru ditambahkan ke Manajemen Akun (nonaktif).` : ""}`,
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     importId: imp.id,
   });
 });
@@ -969,7 +886,6 @@ router.delete("/import/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ success: true, message: `Import #${id} (${imp.type}) dan ${imp.rowsImported} baris datanya berhasil dihapus` });
 });
 
-<<<<<<< HEAD
 // ── PATCH /api/import/:importId/rows/:rowId ────────────────────────────────────
 router.patch("/import/:importId/rows/:rowId", requireAuth, async (req, res): Promise<void> => {
   const importId = parseInt(req.params.importId, 10);
@@ -1005,6 +921,4 @@ router.patch("/import/:importId/rows/:rowId", requireAuth, async (req, res): Pro
   res.json({ success: true });
 });
 
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 export default router;

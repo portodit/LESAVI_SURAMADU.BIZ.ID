@@ -30,8 +30,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (data: LoginBody) => {
     try {
-      await loginMutation.mutateAsync({ data });
-      await refetch();
+      const result = await loginMutation.mutateAsync({ data });
+      // Set user directly from login response — no need to refetch /api/auth/me
+      queryClient.setQueryData(["getMe"], result);
       toast({ title: "Login berhasil", description: "Selamat datang kembali.", variant: "success" });
       setLocation("/dashboard");
     } catch (err: any) {

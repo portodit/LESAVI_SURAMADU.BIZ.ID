@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 // NOTE: "LESA" is a group label (DPS+DSS+DGS), not a DB value.
 // The actual DB values in performance_data.divisi are: DPS, DSS, DGS
 // LESA = LESA region = DPS + DSS + DGS combined
@@ -8,13 +7,6 @@ export const DIVISI_OPTIONS = [
   { value: "DPS",  label: "DPS" },
   { value: "DSS",  label: "DSS" },
   { value: "DGS",  label: "DGS" },
-=======
-export const DIVISI_OPTIONS = [
-  { value: "LESA", label: "LESA" },
-  { value: "GOVT", label: "GOVT" },
-  { value: "DPS",  label: "DPS" },
-  { value: "DSS",  label: "DSS" },
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 ];
 
 export const DIVISI_OPTIONS_WITH_ALL = [
@@ -48,11 +40,7 @@ export function matchesDivisi(
  * GOVT → ["DGS"], else → [d].
  */
 export function expandDivisiPerforma(d: string): string[] {
-<<<<<<< HEAD
   if (d === "LESA") return ["DPS", "DSS", "DGS"];
-=======
-  if (d === "LESA") return ["DPS", "DSS", "DES"];
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   if (d === "GOVT") return ["DGS"];
   return [d];
 }
@@ -68,11 +56,7 @@ export function matchesDivisiPerforma(
 
 /** Human-readable label for a divisi filter value */
 export function divisiFilterLabel(d: string): string {
-<<<<<<< HEAD
   if (d === "LESA") return "LESA (All)";
-=======
-  if (d === "LESA") return "LESA";
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   if (d === "GOVT") return "GOVT";
   if (!d || d === "all") return "Semua Divisi";
   return d;

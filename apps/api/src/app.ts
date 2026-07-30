@@ -41,10 +41,8 @@ app.use(
     cookie: {
       secure: false,
       httpOnly: true,
-<<<<<<< HEAD
-      sameSite: false,
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
+      sameSite: "lax",
+      domain: "localhost",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   })
@@ -58,15 +56,13 @@ app.use("/api/public", (_req, res, next) => {
 
 app.use("/api", router);
 
-if (process.env.NODE_ENV === "production") {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const staticDir = path.join(__dirname, "..", "..", "dashboard", "dist", "public");
-  if (fs.existsSync(staticDir)) {
-    app.use(express.static(staticDir));
-    app.get("/{*splat}", (_req, res) => {
-      res.sendFile(path.join(staticDir, "index.html"));
-    });
-  }
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const staticDir = path.join(__dirname, "..", "..", "dashboard", "dist", "public");
+if (fs.existsSync(staticDir)) {
+  app.use(express.static(staticDir));
+  app.get("/{*splat}", (_req, res) => {
+    res.sendFile(path.join(staticDir, "index.html"));
+  });
 }
 
 export default app;

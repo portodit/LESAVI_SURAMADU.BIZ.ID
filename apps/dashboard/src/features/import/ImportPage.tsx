@@ -36,11 +36,7 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   return r.json();
 }
 
-<<<<<<< HEAD
 export function extractDateFromFilename(source: string): { display: string; isoDate: string; period: string } | null {
-=======
-function extractDateFromFilename(source: string): { display: string; isoDate: string; period: string } | null {
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   // Pattern 1: underscore or hyphen before date: PERFORMANSI_RLEGS_20260607.xlsx, TREG3_ACTIVITY_20260316.xlsx
   const match1 = source.match(/[_-](\d{8})[._?&\s]/);
   if (match1) {
@@ -58,13 +54,8 @@ function extractDateFromFilename(source: string): { display: string; isoDate: st
   }
   // Pattern 2: parentheses around date: PERFORMANSI RLEGS 2026 (20260607).xlsx
   const match2 = source.match(/\((\d{8})\)/);
-<<<<<<< HEAD
   if (match1) {
     const raw = match1[1];
-=======
-  if (match2) {
-    const raw = match2[1];
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     const year = raw.slice(0, 4);
     const month = raw.slice(4, 6);
     const day = raw.slice(6, 8);
@@ -76,11 +67,7 @@ function extractDateFromFilename(source: string): { display: string; isoDate: st
       display: `${day}/${month}/${year}`,
     };
   }
-<<<<<<< HEAD
   // Pattern 2: parentheses around date: PERFORMANSI RLEGS 2026 (20260607).xlsx
-=======
-  return null;
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -618,7 +605,6 @@ export default function ImportData() {
 
   // ── File selection handler ─────────────────────────────────────────────────
   const applyFile = useCallback(async (file: File) => {
-<<<<<<< HEAD
     // Check if this is a pivot cache file FIRST
     const pivot = await isPivotCacheFile(file);
 
@@ -638,26 +624,6 @@ export default function ImportData() {
     // Normal file: read sheet names and show picker if multiple
     const sheets = await readSheetNames(file);
     if (sheets.length > 1) {
-=======
-    const sheets = await readSheetNames(file);
-    if (sheets.length > 1) {
-      // Check if this is a pivot cache file (data stored in pivotCache XML, not flat sheets)
-      const pivot = await isPivotCacheFile(file);
-      if (pivot) {
-        // For pivot cache files, auto-select "Perf. AM" if available (contains AM attribution)
-        const perfAmSheet = sheets.find(s => s.toLowerCase().includes("perf") && s.toLowerCase().includes("am"));
-        if (perfAmSheet) {
-          commitFile(file, perfAmSheet);
-          return;
-        }
-        // Fallback: first sheet that looks like a data sheet (not "KUADRAN" or "NIPNAS")
-        const dataSheet = sheets.find(s => !s.toLowerCase().includes("kuadran") && !s.toLowerCase().includes("nipnas"));
-        if (dataSheet) {
-          commitFile(file, dataSheet);
-          return;
-        }
-      }
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       setSheetPicker({ file, sheets });
     } else {
       commitFile(file, sheets[0] || "");
@@ -1257,11 +1223,7 @@ export default function ImportData() {
                                 onClick={() => { setAmTargetEditId(am.nik); setAmTargetEditVal(existing ? String(existing.targetValue) : ""); }}
                                 className="group/cell w-full flex items-center justify-end gap-2 hover:text-red-600 transition-colors">
                                 <span className="font-mono tabular-nums text-sm">
-<<<<<<< HEAD
                                   {existing ? `Rp ${typeof existing?.targetValue==="number"&&!isNaN(existing?.targetValue)?(existing.targetValue/1e9).toFixed(2):"0"}M` : <span className="text-muted-foreground italic text-xs">Belum diset</span>}
-=======
-                                  {existing ? `Rp ${(existing.targetValue/1e9).toFixed(2)}M` : <span className="text-muted-foreground italic text-xs">Belum diset</span>}
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
                                 </span>
                                 <Pencil className="w-3 h-3 text-muted-foreground group-hover/cell:text-red-600 shrink-0" />
                               </button>
