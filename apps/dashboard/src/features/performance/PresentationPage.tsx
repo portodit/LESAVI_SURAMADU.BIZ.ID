@@ -916,20 +916,6 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
     return years.map(y=>({value:y,label:y}));
   },[snapshots]);
 
-  const [navbarPortalEl, setNavbarPortalEl] = useState<HTMLElement | null>(null);
-  const [mobilePortalEl, setMobilePortalEl] = useState<HTMLElement | null>(null);
-  useEffect(()=>{
-    const find = () => {
-      const el = document.getElementById("funnel-navbar-portal");
-      if(el) setNavbarPortalEl(el);
-      const mel = document.getElementById("funnel-navbar-portal-mobile");
-      if(mel) setMobilePortalEl(mel);
-    };
-    find();
-    const t = setTimeout(find, 50);
-    return () => clearTimeout(t);
-  },[]);
-
   const snapshotOptions = useMemo(()=>
     (Array.isArray(snapshots) ? snapshots : []).filter((s:any)=>{
       if(!s.period.startsWith(filterYear)) return false;
@@ -1671,8 +1657,10 @@ function FunnelSlide({ onTitleChange }: { onTitleChange?: (t: string) => void })
 
   return (
     <div className="p-4 space-y-4">
-      {navbarPortalEl && createPortal(navbarFilterBar, navbarPortalEl)}
-      {mobilePortalEl && createPortal(navbarFilterBar, mobilePortalEl)}
+      {/* Filter bar — rendered inline */}
+      <div className="bg-card border border-border rounded-xl px-4 py-3">
+        {navbarFilterBar}
+      </div>
 
       {/* ── Active filter chips — always visible ── */}
       <div className="flex items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] bg-card border border-border rounded-xl px-4 py-2.5">
@@ -2162,7 +2150,6 @@ function ActivitySlide() {
   const [filterSnapId, setFilterSnapId] = useState<string>("all");
   const [filterKategori, setFilterKategori] = useState<Set<string>>(new Set());
   const snapInitialized = useRef(false);
-  const kategoriInitialized = useRef(false);
   const [expandedAm, setExpandedAm] = useState<Record<string,boolean>>({});
   const [actSearch, setActSearch] = useState("");
   const [actExpandAll, setActExpandAll] = useState<boolean|null>(null);
@@ -2210,20 +2197,6 @@ function ActivitySlide() {
     }
     window.addEventListener("keydown",onKey);
     return ()=>window.removeEventListener("keydown",onKey);
-  },[]);
-
-  const [navbarPortalEl, setNavbarPortalEl] = useState<HTMLElement | null>(null);
-  const [mobilePortalEl, setMobilePortalEl] = useState<HTMLElement | null>(null);
-  useEffect(()=>{
-    const find=()=>{
-      const el=document.getElementById("activity-navbar-portal");
-      if(el) setNavbarPortalEl(el);
-      const mel=document.getElementById("activity-navbar-portal-mobile");
-      if(mel) setMobilePortalEl(mel);
-    };
-    find();
-    const t=setTimeout(find,50);
-    return ()=>clearTimeout(t);
   },[]);
 
   const divisiOptions = DIVISI_OPTIONS;
@@ -2323,11 +2296,15 @@ function ActivitySlide() {
   },[data,filterDivisi,actSearch,filterKategori,actSettingsKpi]);
 
   const stats = useMemo(()=>{
-    const totalKpi=amList.reduce((s:number,a:any)=>s+a.kpiCount,0);
-    const totalDgPelanggan=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>x.isKpi&&x.label&&x.label.toLowerCase().includes("dengan pelanggan")&&!x.label.toLowerCase().includes("proyek")).length,0);
-    const totalDgProyek=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>x.isKpi&&x.label&&x.label.toLowerCase().includes("proyek")).length,0);
-    const reach=amList.filter((a:any)=>a.kpiCount>=a.kpiTarget).length;
-    return {totalKpi,reach,below:amList.length-reach,totalDgPelanggan,totalDgProyek};
+    // totalAll = SEMUA aktivitas (2283)
+    const totalAll=amList.reduce((s:number,a:any)=>s+(a.activities||[]).length,0);
+    // breakdown per label
+    const totalDgPelanggan=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="dengan pelanggan").length,0);
+    const totalDgProyek=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="pelanggan dengan proyek").length,0);
+    const totalTanpa=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="tanpa pelanggan").length,0);
+    const totalKpi=totalDgPelanggan+totalDgProyek; // 1401+712=2113
+    const reach=amList.filter((a:any)=>(a.kpiCount||0)>=(a.kpiTarget||0)).length;
+    return {totalKpi,totalAll,totalDgPelanggan,totalDgProyek,totalTanpa,reach,below:amList.length-reach};
   },[amList]);
 
   const periodLabel = useMemo(()=>{
@@ -2339,14 +2316,14 @@ function ActivitySlide() {
 
   const allLabels = useMemo(()=>data?.distinctLabels||[],[data]);
 
-  // Inisialisasi filterKategori: pilih label KPI (tanpa "Tanpa Pelanggan") saat data pertama muat
+  // Auto-select all labels on first data load
+  const allLabelsInitialized = useRef(false);
   useEffect(()=>{
-    if(data?.distinctLabels&&!kategoriInitialized.current){
-      kategoriInitialized.current=true;
-      const kpiLabels=(data.distinctLabels as string[]).filter(l=>!l.toLowerCase().includes("tanpa"));
-      if(kpiLabels.length>0) setFilterKategori(new Set(kpiLabels));
+    if(allLabels.length>0&&!allLabelsInitialized.current){
+      allLabelsInitialized.current=true;
+      setFilterKategori(new Set(allLabels));
     }
-  },[data?.distinctLabels]);
+  },[allLabels]);
 
   // ─── Filter bar ─────────────────────────────────────────────────────────
   const isActPeriodFiltered = filterMonths.size > 0;
@@ -2363,26 +2340,35 @@ function ActivitySlide() {
     setFilterKategori(new Set(kpiLabels2));
   };
 
+  // ─── Filter bar portal ─────────────────────────────────────────────────────
+  const navbarPortalEl = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = document.getElementById("activity-navbar-portal");
+    if (el) navbarPortalEl.current = el;
+  }, []);
+
+  // ─── Filter bar — portal into navbar ────────────────────────────────────
   const filterBar = (
-    <>
+    <div className="flex items-center gap-3 flex-wrap">
       <FSSelectDropdown label="Snapshot" value={filterSnapId} onChange={setFilterSnapId}
         options={snapOptions} className="w-44 shrink-0"/>
       <ActivityPeriodeDropdown
         filterYear={filterYear} setFilterYear={setFilterYear}
         filterMonths={filterMonths} setFilterMonths={setFilterMonths}/>
-      <FSCheckboxDropdown label="Kategori Aktivitas" options={allLabels} selected={filterKategori} onChange={setFilterKategori}
+      <FSCheckboxDropdown label="Kategori" options={allLabels} selected={filterKategori} onChange={setFilterKategori}
         summaryLabel="kategori" className="w-44 shrink-0" placeholder="Semua"/>
       <FSSelectDropdown label="Divisi" value={filterDivisi} onChange={setFilterDivisi}
         options={divisiOptions} className="w-28 shrink-0"/>
-    </>
+    </div>
   );
 
   return (
-    <div className="p-4 space-y-4">
-      {navbarPortalEl && createPortal(filterBar, navbarPortalEl)}
-      {mobilePortalEl && createPortal(filterBar, mobilePortalEl)}
+    <>
+      {/* Portal filter bar into navbar */}
+      {navbarPortalEl.current && createPortal(filterBar, navbarPortalEl.current)}
 
-      {/* ── Active filter chips — always visible ── */}
+      <div className="p-4 space-y-4">
+      {/* Active filter chips — always visible below navbar */}
       <div className="flex items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] bg-card border border-border rounded-xl px-4 py-2.5">
         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide shrink-0">Filter aktif:</span>
         {/* Periode — always shows */}
@@ -2405,7 +2391,7 @@ function ActivitySlide() {
         <span className={cn("inline-flex shrink-0 items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border",
           isActKategoriFiltered ? "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border-amber-200 dark:border-amber-800" : "bg-secondary text-muted-foreground border-border")}>
           Kategori: {filterKategori.size === 0 ? "Semua" : filterKategori.size === allLabels.length ? `Semua (${allLabels.length})` : filterKategori.size === 1 ? [...filterKategori][0] : `${filterKategori.size} kategori`}
-          {isActKategoriFiltered && <button onClick={() => { kategoriInitialized.current = false; setFilterKategori(new Set()); }} className="hover:opacity-70"><X className="w-3 h-3"/></button>}
+          {isActKategoriFiltered && <button onClick={() => setFilterKategori(new Set())} className="hover:opacity-70"><X className="w-3 h-3"/></button>}
         </span>
         {actHasActiveFilter && (
           <button onClick={resetActFilters}
@@ -2421,17 +2407,17 @@ function ActivitySlide() {
         <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Belum ada data aktivitas</div>
       ) : (
         <>
-          {/* ─── Overview Cards ─── */}
+          {/* ─── Overview Cards (3 only) ─── */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Card 1: Total KPI */}
+            {/* Card 1: Total Semua Aktivitas */}
             <div className="bg-white border border-border rounded-xl p-4 flex items-start gap-3">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 bg-primary/10 text-primary">🎯</div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-bold text-foreground uppercase tracking-wide mb-1">Total Aktivitas KPI</div>
+                <div className="text-sm font-bold text-foreground uppercase tracking-wide mb-1">Total Semua Aktivitas</div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <div className="text-3xl font-black tabular-nums leading-tight text-foreground">{stats.totalKpi}</div>
+                  <div className="text-3xl font-black tabular-nums leading-tight text-foreground">{stats.totalAll}</div>
                   <span className="text-sm font-bold text-foreground/70 leading-snug">
-                    {stats.totalDgPelanggan} dg pelanggan<br className="sm:hidden"/>{" · "}{stats.totalDgProyek} dg proyek
+                    {stats.totalDgPelanggan} dg pelanggan{" · "}{stats.totalDgProyek} dg proyek{" · "}{stats.totalTanpa} tanpa
                   </span>
                 </div>
               </div>
@@ -2691,6 +2677,7 @@ function ActivitySlide() {
         </>
       )}
     </div>
+    </>
   );
 }
 
