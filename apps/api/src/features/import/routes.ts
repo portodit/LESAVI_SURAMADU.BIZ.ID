@@ -199,9 +199,10 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
     }).filter(r => r.nik && r.namaAm);
 
   } else if (isRawFormat) {
-    // ── RAW format: per-customer per-month rows, aggregate by NIK + PERIODE
-    // New columns: PROPORSI, NIP_NAS, STANDARD_NAME, TARGET_SUSTAIN, TARGET_SCALING,
-    //              TARGET_NGTMA, REAL_SUSTAIN, REAL_SCALING, REAL_NGTMA
+    // ── RAW format: per-customer per-month rows, aggregate by NIK + PERIODE + divisi
+    // Filter: WITEL_CC = SURAMADU (customer's witel, not AM's witel)
+    // All revenue fields stored with full precision — no rounding, preserve negatives
+
     type CustomerEntry = {
       nip: string; pelanggan: string; proporsi: number;
       group: string; industri: string; lsegmen: string; ssegmen: string;
@@ -211,17 +212,27 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       Scaling: { target: number; real: number };
       NGTMA: { target: number; real: number };
       targetTotal: number; realTotal: number;
+      // New: billing sub-components
+      revenueBase: number; revenueBillcom: number;
+      // New: achievement rates (from RAW file, raw precision)
+      aRev: number; aNgtma: number; aScaling: number; aSustain: number;
     };
     type AmEntry = {
       nik: string; namaAm: string; divisi: string; witel: string; levelAm: string;
       periodeStr: string; target: number; real: number;
       tReg: number; rReg: number; tSustain: number; rSustain: number;
       tScaling: number; rScaling: number; tNgtma: number; rNgtma: number;
+      // New: per-AM aggregated billing sub-components
+      revBase: number; revBillcom: number;
       customers: CustomerEntry[];
     };
     const amMap = new Map<string, AmEntry>();
 
     for (const r of rows) {
+      // ── Filter: WITEL_CC = SURAMADU ──────────────────────────────────────
+      const witelCc = String(r.WITEL_CC || r.witel_cc || "").trim().toUpperCase();
+      if (!witelCc.includes("SURAMADU")) continue;
+
       const nik = String(r.NIK || r.nik || "").trim();
       const namaAm = String(r.NAMA_AM || r.nama_am || "").trim();
       const divisiRaw = String(r.DIVISI_CC || r.divisi_cc || r.DIVISI_AM || r.divisi || "").trim();
@@ -233,7 +244,8 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       // disimpan sebagai rekord terpisah — bukan digabung jadi satu
       const key = `${nik}__${periodeStr}__${divisiRaw.toUpperCase()}`;
 
-      // Revenue per tipe — negatif mengurangi total (e.g. AM HANDIKA), bukan dijumlah
+      // Revenue per tipe — negatif mengurangi total (e.g. billing reversal)
+      // parseIndonesianNumber preserves full floating-point precision + negatives
       const tReg = parseIndonesianNumber(r.TARGET_REVENUE ?? r.target_revenue);
       const rReg = parseIndonesianNumber(r.REAL_REVENUE ?? r.real_revenue);
       const tSustain = parseIndonesianNumber(r.TARGET_SUSTAIN ?? r.target_sustain ?? 0);
@@ -243,12 +255,23 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       const tNgtma = parseIndonesianNumber(r.TARGET_NGTMA ?? r.target_ngtma ?? 0);
       const rNgtma = parseIndonesianNumber(r.REAL_NGTMA ?? r.real_ngtma ?? 0);
       const targetTotal = tReg + tSustain + tScaling + tNgtma;
-      // Sum positives first, then subtract negatives
+      // Sum positives first, then subtract negatives (handles billing reversals correctly)
       const realTotal = (
         Math.max(0, rReg) + Math.max(0, rSustain) + Math.max(0, rScaling) + Math.max(0, rNgtma)
       ) - (
-        Math.abs(Math.min(0, rReg)) + Math.abs(Math.min(0, rSustain)) + Math.abs(Math.min(0, rScaling)) + Math.abs(Math.min(0, rNgtma))
+        Math.abs(Math.min(0, rReg)) + Math.abs(Math.min(0, rSustain)) +
+        Math.abs(Math.min(0, rScaling)) + Math.abs(Math.min(0, rNgtma))
       );
+
+      // New: billing sub-components — raw values, preserve negatives and precision
+      const revBase = parseIndonesianNumber(r.REVENUE_BASE ?? r.revenue_base ?? 0);
+      const revBillcom = parseIndonesianNumber(r.REVENUE_BILLCOM ?? r.revenue_billcom ?? 0);
+
+      // New: achievement rates — direct from file, full precision (a_rev = REAL_REVENUE/TARGET_REVENUE)
+      const rawARev = parseFloat(String(r.a_rev ?? r.a_rev ?? r["a_rev"] ?? 0)) || 0;
+      const rawANgtma = parseFloat(String(r.a_ngtma ?? r["a_ngtma"] ?? 0)) || 0;
+      const rawAScaling = parseFloat(String(r.a_scaling ?? r["a_scaling"] ?? 0)) || 0;
+      const rawASustain = parseFloat(String(r.a_sustain ?? r["a_sustain"] ?? 0)) || 0;
 
       // Customer info — semua kolom pelanggan disimpan
       const pelanggan = String(r.STANDARD_NAME || r.NAMA_PELANGGAN || r.PELANGGAN || r.pelanggan || r.nama_account || "").trim();
@@ -258,7 +281,6 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       const industri = String(r.INDUSTRI || r.industri || "").trim();
       const lsegmen = String(r.LSEGMEN || r.lsegmen || "").trim();
       const ssegmen = String(r.SSEGMEN || r.ssegmen || "").trim();
-      const witelCc = String(r.WITEL_CC || r.witel_cc || "").trim();
       const telda = String(r.TELDA || r.telda || "").trim();
       const regional = String(r.REGIONAL || r.regional || "").trim();
       const divisiCc = String(r.DIVISI_CC || r.divisi_cc || "").trim();
@@ -273,6 +295,7 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
           periodeStr, target: 0, real: 0,
           tReg: 0, rReg: 0, tSustain: 0, rSustain: 0,
           tScaling: 0, rScaling: 0, tNgtma: 0, rNgtma: 0,
+          revBase: 0, revBillcom: 0,
           customers: [],
         });
       }
@@ -283,6 +306,7 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
       entry.tSustain += tSustain; entry.rSustain += rSustain;
       entry.tScaling += tScaling; entry.rScaling += rScaling;
       entry.tNgtma += tNgtma; entry.rNgtma += rNgtma;
+      entry.revBase += revBase; entry.revBillcom += revBillcom;
       if (pelanggan || nip) {
         entry.customers.push({
           nip, pelanggan, proporsi,
@@ -293,6 +317,8 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
           Scaling: { target: tScaling, real: rScaling },
           NGTMA: { target: tNgtma, real: rNgtma },
           targetTotal, realTotal,
+          revenueBase: revBase, revenueBillcom: revBillcom,
+          aRev: rawARev, aNgtma: rawANgtma, aScaling: rawAScaling, aSustain: rawASustain,
         });
       }
     }
@@ -319,6 +345,12 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
         realScaling: entry.rScaling,
         targetNgtma: entry.tNgtma,
         realNgtma: entry.rNgtma,
+        revenueBase: entry.revBase || null,
+        revenueBillcom: entry.revBillcom || null,
+        aRev: null, // per-customer rates stored in komponenDetail
+        aNgtma: null,
+        aScaling: null,
+        aSustain: null,
         achRate,
         achRateYtd: achRate,
         rankAch: 0,
