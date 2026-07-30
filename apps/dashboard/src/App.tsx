@@ -7,10 +7,7 @@ import { AuthProvider, useAuth } from "@/shared/hooks/use-auth";
 import { ImportGuardProvider } from "@/shared/hooks/use-import-guard";
 import { DashboardLayout } from "@/shared/layout";
 import { Loader2 } from "lucide-react";
-<<<<<<< HEAD
 import { setBaseUrl } from "@workspace/api-client-react";
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 
 import Login from "@/features/auth/LoginPage";
 import EmbedPerforma from "@/features/performance/PresentationPage";
@@ -53,11 +50,8 @@ function ProtectedApp() {
     );
   }
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
-  // Account Manager hanya boleh akses halaman presentasi, bukan dashboard penuh
   if (user.role === "AM") {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-8 text-center">
@@ -71,10 +65,7 @@ function ProtectedApp() {
             Hubungi Officer atau Manager untuk mendapatkan akses dashboard.
           </p>
         </div>
-        <a
-          href="/presentation/login"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors"
-        >
+        <a href="/presentation/login" className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors">
           Buka Halaman Presentasi
         </a>
       </div>
@@ -94,24 +85,14 @@ function ProtectedApp() {
         <Route path="/corporate-customers" component={CorporateCustomerPage} />
         <Route path="/telegram" component={TelegramBot} />
         <Route path="/pengaturan" component={PengaturanPage} />
-        <Route path="/">
-          <Redirect to="/dashboard" />
-        </Route>
-        <Route>
-          <div className="p-8 text-center text-muted-foreground">Halaman tidak ditemukan</div>
-        </Route>
+        <Route path="/"><Redirect to="/dashboard" /></Route>
+        <Route><div className="p-8 text-center text-muted-foreground">Halaman tidak ditemukan</div></Route>
       </Switch>
     </DashboardLayout>
   );
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-    },
-  },
-});
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 function PresentationGuard() {
   const session = getPresentationSession();
@@ -133,14 +114,11 @@ function AppRouter() {
 }
 
 function App() {
-<<<<<<< HEAD
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
     setBaseUrl(apiUrl);
   }, []);
 
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
