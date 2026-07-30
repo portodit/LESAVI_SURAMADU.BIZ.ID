@@ -25,6 +25,12 @@ export interface PerformanceRow {
   realScaling: string | null;
   targetNgtma: string | null;
   realNgtma: string | null;
+  revenueBase: string | null;
+  revenueBillcom: string | null;
+  aRev: string | null;
+  aNgtma: string | null;
+  aScaling: string | null;
+  aSustain: string | null;
   achRate: string | null;
   achRateYtd: string | null;
   rankAch: number | null;
@@ -154,7 +160,6 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
   const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
   const [activeFilter, setActiveFilter] = useState<{ field: string; rect: DOMRect } | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const [localRows] = useState(rows);
   const rowCount = rows.length;
 
   useEffect(() => { setPage(1); }, [search, columnFilters]);
@@ -171,7 +176,7 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
   }, [rows]);
 
   const filtered = useMemo(() => {
-    let result = localRows;
+    let result = rows;
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter(r =>
@@ -189,7 +194,7 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
       });
     }
     return result;
-  }, [localRows, search, columnFilters]);
+  }, [rows, search, columnFilters]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
