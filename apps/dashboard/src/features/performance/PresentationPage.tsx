@@ -2296,15 +2296,17 @@ function ActivitySlide() {
   },[data,filterDivisi,actSearch,filterKategori,actSettingsKpi]);
 
   const stats = useMemo(()=>{
-    // totalAll = SEMUA aktivitas (2283)
-    const totalAll=amList.reduce((s:number,a:any)=>s+(a.activities||[]).length,0);
-    // breakdown per label
-    const totalDgPelanggan=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="dengan pelanggan").length,0);
-    const totalDgProyek=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="pelanggan dengan proyek").length,0);
-    const totalTanpa=amList.reduce((s:number,a:any)=>s+(a.activities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="tanpa pelanggan").length,0);
-    const totalKpi=totalDgPelanggan+totalDgProyek; // 1401+712=2113
-    const reach=amList.filter((a:any)=>(a.kpiCount||0)>=(a.kpiTarget||0)).length;
-    return {totalKpi,totalAll,totalDgPelanggan,totalDgProyek,totalTanpa,reach,below:amList.length-reach};
+    // visibleActivities sudah difilter oleh filterKategori
+    const visAll=amList.reduce((s:number,a:any)=>s+(a.visibleActivities||[]).length,0);
+    const totalDgPelanggan=amList.reduce((s:number,a:any)=>s+(a.visibleActivities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="dengan pelanggan").length,0);
+    const totalDgProyek=amList.reduce((s:number,a:any)=>s+(a.visibleActivities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="pelanggan dengan proyek").length,0);
+    const totalTanpa=amList.reduce((s:number,a:any)=>s+(a.visibleActivities||[]).filter((x:any)=>(x.label||"").toLowerCase()==="tanpa pelanggan").length,0);
+    const totalKpi=totalDgPelanggan+totalDgProyek;
+    const reach=amList.filter((a:any)=>{
+      const kpiActs=(a.visibleActivities||[]).filter((x:any)=>(x.label||"").toLowerCase()!=="tanpa pelanggan").length;
+      return kpiActs>=(a.kpiTarget||0);
+    }).length;
+    return {totalKpi,totalAll:visAll,totalDgPelanggan,totalDgProyek,totalTanpa,reach,below:amList.length-reach};
   },[amList]);
 
   const periodLabel = useMemo(()=>{
