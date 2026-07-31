@@ -1,15 +1,14 @@
 import React, { useState } from "react";
 import { useAuth } from "@/shared/hooks/use-auth";
-import { useLocation } from "wouter";
 import { Loader2, Eye, EyeOff, Lock, User } from "lucide-react";
 
 export default function Login() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const { login, user, isLoading: isAuthLoading } = useAuth();
-  const [, setLocation] = useLocation();
+  const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -24,13 +23,6 @@ export default function Login() {
       setIsLoading(false);
     }
   };
-
-  // Redirect immediately after login succeeds (toast handles async)
-  React.useEffect(() => {
-    if (user) {
-      setLocation("/dashboard");
-    }
-  }, [user, setLocation]);
 
   return (
     <div className="relative flex min-h-screen w-full overflow-hidden">
