@@ -749,7 +749,7 @@ router.get("/import/:id/data", requireAuth, async (req, res): Promise<void> => {
           p.target_ngtma, p.real_ngtma,
           p.revenue_base as "revenueBase", p.revenue_billcom as "revenueBillcom",
           p.a_rev, p.a_ngtma, p.a_scaling, p.a_sustain,
-          p.ach_rate as "achRate", p.status_warna as "statusWarna",
+          p.ach_rate as "achRate", p.ach_rate_ytd as "achRateYtd", p.rank_ach as "rankAch", p.status_warna as "statusWarna",
           p.komponen_detail as "komponenDetail",
           p.import_id as "importId"
         FROM performance_data p WHERE p.import_id = $1
@@ -768,10 +768,13 @@ router.get("/import/:id/data", requireAuth, async (req, res): Promise<void> => {
                 nik: r.nik,
                 namaAm: r.namaAm,
                 levelAm: r.levelAm,
+                divisi: r.divisiAm,
                 divisiAm: r.divisiAm,
                 witelAm: r.witelAm,
                 tahun: r.tahun,
                 bulan: r.bulan,
+                targetRevenue: r.target_revenue,
+                realRevenue: r.real_revenue,
                 targetReguler: r.target_reguler,
                 realReguler: r.real_reguler,
                 targetSustain: r.target_sustain,
@@ -789,6 +792,8 @@ router.get("/import/:id/data", requireAuth, async (req, res): Promise<void> => {
                 a_scaling: r.a_scaling,
                 a_sustain: r.a_sustain,
                 achRate: r.achRate,
+                achRateYtd: r.achRateYtd,
+                rankAch: r.rankAch,
                 statusWarna: r.statusWarna,
                 nip: d.nip || null,
                 pelanggan: d.pelanggan || null,
@@ -809,8 +814,9 @@ router.get("/import/:id/data", requireAuth, async (req, res): Promise<void> => {
             // If parsing fails, push the row as-is
             flatRows.push({
               nik: r.nik, namaAm: r.namaAm, levelAm: r.levelAm,
-              divisiAm: r.divisiAm, witelAm: r.witelAm,
+              divisi: r.divisiAm, divisiAm: r.divisiAm, witelAm: r.witelAm,
               tahun: r.tahun, bulan: r.bulan,
+              targetRevenue: r.target_revenue, realRevenue: r.real_revenue,
               targetReguler: r.target_reguler, realReguler: r.real_reguler,
               targetSustain: r.target_sustain, realSustain: r.real_sustain,
               targetScaling: r.target_scaling, realScaling: r.real_scaling,
@@ -828,8 +834,9 @@ router.get("/import/:id/data", requireAuth, async (req, res): Promise<void> => {
         } else {
           flatRows.push({
             nik: r.nik, namaAm: r.namaAm, levelAm: r.levelAm,
-            divisiAm: r.divisiAm, witelAm: r.witelAm,
+            divisi: r.divisiAm, divisiAm: r.divisiAm, witelAm: r.witelAm,
             tahun: r.tahun, bulan: r.bulan,
+            targetRevenue: r.target_revenue, realRevenue: r.real_revenue,
             targetReguler: r.target_reguler, realReguler: r.real_reguler,
             targetSustain: r.target_sustain, realSustain: r.real_sustain,
             targetScaling: r.target_scaling, realScaling: r.real_scaling,
