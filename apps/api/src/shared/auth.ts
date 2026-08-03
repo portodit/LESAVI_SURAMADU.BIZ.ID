@@ -12,11 +12,7 @@ export async function comparePassword(password: string, hash: string): Promise<b
 }
 
 export async function ensureDefaultAdmin(): Promise<void> {
-<<<<<<< HEAD
   const OFFICER_EMAIL = "bliaditdev@gmail.com";
-=======
-  const OFFICER_EMAIL = "bliadiitdev@gmail.com";
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   const OFFICER_NIK   = "160203";
 
   const existing = await db

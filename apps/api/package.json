@@ -15,18 +15,11 @@
     "seed:funnel-targets": "pnpm run seed:build && node ./dist-seeds/index.mjs funnel-targets",
     "seed:performance": "pnpm run seed:build && node ./dist-seeds/index.mjs performance",
     "seed:activity": "pnpm run seed:build && node ./dist-seeds/index.mjs activity",
-<<<<<<< HEAD
     "seed:funnel": "pnpm run seed:build && node ./dist-seeds/index.mjs funnel",
     "clean": "node -e \"const fs=require('fs');['dist','dist-seeds'].forEach(d=>{const p=d+'/index.mjs';if(fs.existsSync(p))fs.unlinkSync(p)});['dist','dist-seeds'].forEach(d=>{if(fs.existsSync(d))fs.rmSync(d,{recursive:true})})\""
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
-=======
-    "seed:funnel": "pnpm run seed:build && node ./dist-seeds/index.mjs funnel"
-  },
-  "dependencies": {
-    "@google/genai": "^1.46.0",
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@xmldom/xmldom": "^0.9.10",

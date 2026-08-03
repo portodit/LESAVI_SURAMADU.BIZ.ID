@@ -16,15 +16,6 @@ router.get("/public/funnel/snapshots", async (req, res): Promise<void> => {
   const imports = await db
     .select()
     .from(dataImportsTable)
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-    .where(eq(dataImportsTable.type, "funnel"))
-    .orderBy(desc(dataImportsTable.createdAt));
-
-  res.json(imports.map(imp => ({
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     .where(eq(dataImportsTable.type, "funnel"));
 
   const sorted = [...imports].sort((a, b) => {
@@ -34,10 +25,6 @@ router.get("/public/funnel/snapshots", async (req, res): Promise<void> => {
   });
 
   res.json(sorted.map(imp => ({
-<<<<<<< HEAD
-=======
->>>>>>> origin/master
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     id: imp.id,
     period: imp.period,
     rowsImported: imp.rowsImported,
@@ -47,7 +34,6 @@ router.get("/public/funnel/snapshots", async (req, res): Promise<void> => {
 });
 
 router.get("/public/funnel", async (req, res): Promise<void> => {
-<<<<<<< HEAD
   Object.entries(PUBLIC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 
   const { import_id, divisi, status, nama_am, kategori_kontrak, tahun, tahun_list, rd_year, durasi_filter, is_report, project_type } = req.query;
@@ -64,48 +50,6 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
       return { ...l, namaAm: masterAmByNik.get(l.nikAm) || l.namaAm };
     }
     return l;
-=======
-  console.log("MARKER_FOR_DEVEL_PUBLIC_FUNNEL");
-  Object.entries(PUBLIC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
-
-<<<<<<< HEAD
-  const { import_id, divisi, status, nama_am, kategori_kontrak, tahun, tahun_list, rd_year, durasi_filter } = req.query;
-=======
-  const { import_id, divisi, status, nama_am, kategori_kontrak, tahun, tahun_list, rd_year, durasi_filter, is_report, project_type } = req.query;
->>>>>>> origin/master
-
-  const masterAms = await db.select().from(accountManagersTable);
-  const masterAmByNik = new Map();
-  masterAms.forEach(m => {
-    if (m.nik) masterAmByNik.set(String(m.nik).trim(), m.nama);
-  });
-
-  const activeNikSet = new Set(masterAms.filter(m => m.aktif && m.role === "AM" && m.nik).map(m => String(m.nik).trim()));
-
-  let allLopsRaw = await db.select().from(salesFunnelTable);
-
-  let allLops = allLopsRaw.map(l => {
-    const d = { ...l };
-    // 1. Resolve namaAm if it's a NIK or empty
-    const amNik = String(d.nikAm || "").trim();
-    if (masterAmByNik.has(amNik)) {
-      d.namaAm = masterAmByNik.get(amNik);
-    }
-
-    // 2. Resolve namaPembuatLop
-    const pembuatRaw = String(d.namaPembuatLop || "").trim();
-    const isNikPembuat = /^\d+$/.test(pembuatRaw);
-
-    if (isNikPembuat && masterAmByNik.has(pembuatRaw)) {
-      d.namaPembuatLop = masterAmByNik.get(pembuatRaw);
-    } else if (!d.namaPembuatLop || d.namaPembuatLop === "" || isNikPembuat) {
-      if (amNik && masterAmByNik.has(amNik)) {
-        d.namaPembuatLop = masterAmByNik.get(amNik);
-      }
-    }
-
-    return d;
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   });
 
   if (import_id) allLops = allLops.filter(l => l.importId === Number(import_id));
@@ -153,7 +97,6 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
   }
   // Witel Suramadu hanya handle customer DPS dan DSS — singkirkan DGS
   allLops = allLops.filter(l => (l.divisi || "").toUpperCase() !== "DGS");
-<<<<<<< HEAD
 
   // ── AUTO FILTERS (sesuai PIVOT F MyTENS, hidden dari UI) ──────────────────
   // 1. is_report = 'Y' (hanya LOP yang sudah valid/approved); jika NULL/null-string, inklude (data lama tidak ada is_report)
@@ -168,20 +111,6 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
     if (!v) return true; // null/undefined/empty → inklude
     return ["AO", "MO"].includes(v.trim().toUpperCase());
   });
-=======
-<<<<<<< HEAD
-  if (divisi && String(divisi) !== "all") allLops = allLops.filter(l => matchesDivisi(l.divisi, String(divisi)));
-  if (status) allLops = allLops.filter(l => l.statusF === String(status));
-  if (nama_am) allLops = allLops.filter(l => l.namaAm?.toLowerCase().includes(String(nama_am).toLowerCase()));
-  if (kategori_kontrak) allLops = allLops.filter(l => l.kategoriKontrak === String(kategori_kontrak));
-=======
-
-  // ── AUTO FILTERS (sesuai PIVOT F MyTENS, hidden dari UI) ──────────────────
-  // 1. is_report = 'Y' (hanya LOP yang sudah valid/approved)
-  allLops = allLops.filter(l => (l.isReport || "").toUpperCase() === "Y");
-  // 2. project_type ∈ {AO, MO}
-  allLops = allLops.filter(l => ["AO", "MO"].includes((l.projectType || "").toUpperCase()));
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   // 3. status_proyek bukan Lose/Cancel
   allLops = allLops.filter(l => !["LOSE", "CANCEL"].includes((l.statusProyek || "").toUpperCase()));
 
@@ -195,36 +124,15 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
   }
   // is_report and project_type query params kept for backward compat but no-op (already auto-applied above)
   void is_report; void project_type;
-<<<<<<< HEAD
-=======
->>>>>>> origin/master
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   if (durasi_filter === "single_year") allLops = allLops.filter(l => l.monthSubs != null && l.monthSubs <= 12);
   else if (durasi_filter === "multi_year") allLops = allLops.filter(l => l.monthSubs != null && l.monthSubs > 12);
 
   // Only include LOPs from registered AMs (role=AM, aktif=true) — same rule as activity/performance visualizations
-<<<<<<< HEAD
   allLops = allLops.filter(l => l.nikAm && activeNikSet.has(l.nikAm));
 
   const totalLop = allLops.length;
   const totalNilai = allLops.reduce((s, l) => s + (l.nilaiProyek || 0), 0);
   const totalEstRev = allLops.reduce((s, l) => s + (l.estRev || 0), 0);
-=======
-  allLops = allLops.filter(l => {
-    if (!l.nikAm) return false;
-    const handlingNiks = (l.nikHandling || "").split(",").map(n => n.trim()).filter(Boolean);
-    const isHandling = handlingNiks.some(n => activeNikSet.has(n));
-    const isOwner = activeNikSet.has(l.nikAm);
-    return isHandling || isOwner;
-  });
-
-  const totalLop = allLops.length;
-  const totalNilai = allLops.reduce((s, l) => s + (l.nilaiProyek || 0), 0);
-<<<<<<< HEAD
-=======
-  const totalEstRev = allLops.reduce((s, l) => s + (l.estRev || 0), 0);
->>>>>>> origin/master
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   const namedLops = allLops.filter(l => l.namaAm && l.namaAm !== "");
   const amSet = new Set(namedLops.map(l => l.nikAm).filter(Boolean));
   const pelangganSet = new Set(allLops.map(l => l.pelanggan).filter(Boolean));
@@ -240,7 +148,6 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
     }, {})
   ).map(([, v]) => v);
 
-<<<<<<< HEAD
   const masterLops = namedLops.filter(l => l.nikAm && activeNikSet.has(l.nikAm));
   const amGroups = Object.entries(
     masterLops.reduce((acc: any, l) => {
@@ -258,40 +165,6 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
       return acc;
     }, {})
   ).map(([, v]: any) => ({
-=======
-  const masterLops = namedLops.filter(l => {
-      const handlingNiks = (l.nikHandling || "").split(",").map(n => n.trim()).filter(Boolean);
-      return handlingNiks.some(n => activeNikSet.has(n)) || (l.nikAm && activeNikSet.has(l.nikAm));
-  });
-
-  const amGroupsMap: Record<string, any> = {};
-  for (const l of masterLops) {
-      const handlingNiks = (l.nikHandling || "").split(",").map(n => n.trim()).filter(Boolean);
-      const targets = handlingNiks.length > 0 ? handlingNiks.filter(n => activeNikSet.has(n)) : [l.nikAm].filter(n => n && activeNikSet.has(n));
-      for (const nik of targets) {
-          if (!amGroupsMap[nik]) {
-              amGroupsMap[nik] = {
-                  namaAm: masterAmByNik.get(nik) || nik,
-                  nik: nik,
-                  divisi: l.divisi || "",
-                  totalLop: 0,
-                  totalNilai: 0,
-                  shortage: 0,
-                  statusMap: {}
-              };
-          }
-          const group = amGroupsMap[nik];
-          group.totalLop++;
-          group.totalNilai += l.nilaiProyek || 0;
-          const s = l.statusF || "Unknown";
-          if (!group.statusMap[s]) group.statusMap[s] = { status: s, count: 0, totalNilai: 0 };
-          group.statusMap[s].count++;
-          group.statusMap[s].totalNilai += l.nilaiProyek || 0;
-      }
-  }
-
-  const amGroups = Object.values(amGroupsMap).map((v: any) => ({
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     namaAm: v.namaAm, nik: v.nik, divisi: v.divisi,
     totalLop: v.totalLop, totalNilai: v.totalNilai, shortage: 0,
     byStatus: Object.values(v.statusMap),
@@ -354,29 +227,11 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
     return new Date().getFullYear();
   })();
   const amTargetRows = await db.select().from(amFunnelTargetTable).where(eq(amFunnelTargetTable.tahun, amTargetYear));
-<<<<<<< HEAD
   const amTargets: Record<string, { id: number; targetValue: number; targetValueDss: number | null; targetValueDps: number | null; tahun: number }> = {};
   for (const r of amTargetRows) amTargets[r.nikAm] = { id: r.id, targetValue: r.targetValue, targetValueDss: r.targetValueDss ?? null, targetValueDps: r.targetValueDps ?? null, tahun: r.tahun };
 
   res.json({
     totalLop, totalNilai, totalEstRev,
-=======
-<<<<<<< HEAD
-  const amTargets: Record<string, { id: number; targetValue: number; tahun: number }> = {};
-  for (const r of amTargetRows) amTargets[r.nikAm] = { id: r.id, targetValue: r.targetValue, tahun: r.tahun };
-
-  res.json({
-    totalLop, totalNilai,
-=======
-  const amTargets: Record<string, { id: number; targetValue: number; targetValueDss: number | null; targetValueDps: number | null; tahun: number }> = {};
-  for (const r of amTargetRows) amTargets[r.nikAm] = { id: r.id, targetValue: r.targetValue, targetValueDss: r.targetValueDss ?? null, targetValueDps: r.targetValueDps ?? null, tahun: r.tahun };
-
-  console.log("DEBUG FIRST LOP:", allLops[0]);
-
-  res.json({
-    totalLop, totalNilai, totalEstRev,
->>>>>>> origin/master
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
     targetHo: targetHoVal,
     targetFullHo: targetFullHoVal,
     targetByDivisi,
@@ -396,39 +251,19 @@ router.get("/public/funnel", async (req, res): Promise<void> => {
       judulProyek: l.judulProyek,
       pelanggan: l.pelanggan,
       nilaiProyek: l.nilaiProyek,
-<<<<<<< HEAD
       estRev: l.estRev ?? null,
-=======
-<<<<<<< HEAD
-=======
-      estRev: l.estRev ?? null,
->>>>>>> origin/master
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       divisi: l.divisi,
       segmen: l.segmen,
       statusF: l.statusF,
       proses: l.proses,
       statusProyek: l.statusProyek,
       kategoriKontrak: l.kategoriKontrak,
-<<<<<<< HEAD
       projectType: l.projectType ?? null,
       isReport: l.isReport ?? null,
-=======
-<<<<<<< HEAD
-=======
-      projectType: l.projectType ?? null,
-      isReport: l.isReport ?? null,
->>>>>>> origin/master
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       estimateBulan: l.estimateBulan,
       monthSubs: l.monthSubs ?? null,
       namaAm: l.namaAm,
       nikAm: l.nikAm,
-<<<<<<< HEAD
-=======
-      nikHandling: l.nikHandling,
-      namaPembuatLop: l.namaPembuatLop,
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
       reportDate: l.reportDate,
       tahunAnggaran: l.tahunAnggaran,
     })),

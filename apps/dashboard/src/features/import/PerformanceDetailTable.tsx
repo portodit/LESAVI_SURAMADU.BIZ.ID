@@ -29,6 +29,7 @@ export interface PerformanceRow {
   achRateYtd: string | null;
   rankAch: number | null;
   statusWarna: string | null;
+  customer: string | null;
   komponenDetail: string | null;
   snapshotDate: string | null;
   importId: number | null;
@@ -51,6 +52,7 @@ const COLUMNS: FilterCol[] = [
   { field: "levelAm", label: "Level AM", width: "80px" },
   { field: "witelAm", label: "Witel", width: "90px" },
   { field: "divisi", label: "Divisi AM", width: "70px" },
+  { field: "customer", label: "Customer", width: "140px" },
   { field: "divisiCc", label: "Divisi CC", width: "70px" },
   { field: "tahun", label: "Tahun", width: "60px", align: "center" },
   { field: "bulan", label: "Bulan", width: "55px", align: "center" },
@@ -176,7 +178,10 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     if (q) {
       result = result.filter(r =>
         COLUMNS.some(col => {
-          const val = (r as any)[col.field];
+          let val: any = (r as any)[col.field];
+          if (col.field === "customer") {
+            try { const custs = r.komponenDetail ? JSON.parse(r.komponenDetail) : []; val = custs[0]?.pelanggan || ""; } catch { val = ""; }
+          }
           return typeof val === "string" && val.toLowerCase().includes(q);
         })
       );
@@ -291,6 +296,12 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
                             r.statusWarna === "hijau" ? "text-green-700 bg-green-50 border-green-200" :
                             r.statusWarna === "oranye" ? "text-orange-700 bg-orange-50 border-orange-200" :
                             "text-red-700 bg-red-50 border-red-200")}>{r.statusWarna?.toUpperCase()}</span>
+                        ) : col.field === "customer" ? (
+                          <span className="truncate block">
+                            {(() => {
+                              try { const custs = r.komponenDetail ? JSON.parse(r.komponenDetail) : []; return custs[0]?.pelanggan || "–"; } catch { return "–"; }
+                            })()}
+                          </span>
                         ) : (
                           <span className={cn("truncate block", col.align === "right" ? "tabular-nums" : "")}>{formatVal(col, (r as any)[col.field])}</span>
                         )}

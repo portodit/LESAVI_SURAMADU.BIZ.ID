@@ -7,10 +7,7 @@ import { AuthProvider, useAuth } from "@/shared/hooks/use-auth";
 import { ImportGuardProvider } from "@/shared/hooks/use-import-guard";
 import { DashboardLayout } from "@/shared/layout";
 import { Loader2 } from "lucide-react";
-<<<<<<< HEAD
 import { setBaseUrl } from "@workspace/api-client-react";
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
 
 import Login from "@/features/auth/LoginPage";
 import EmbedPerforma from "@/features/performance/PresentationPage";
@@ -133,14 +130,11 @@ function AppRouter() {
 }
 
 function App() {
-<<<<<<< HEAD
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
     setBaseUrl(apiUrl);
   }, []);
 
-=======
->>>>>>> 3fd35a8c4fc9178e0fdcba46f48d6a9e10ae8829
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
