@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, ChevronLeft, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronLeft, Search, X, ArrowUp, ArrowDown, Download } from "lucide-react";
 import { cn, formatRupiah } from "@/shared/lib/utils";
+import * as XLSX from "xlsx";
 
 const PAGE_SIZE = 50;
 
@@ -41,36 +42,41 @@ export interface PerformanceRow {
   createdAt: string | null;
 }
 
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+
+interface SortState {
+  field: string;
+  direction: "asc" | "desc";
+}
+
 interface FilterCol {
   field: string;
   label: string;
   width: string;
   align?: "right" | "center";
-  categorical?: boolean;
-  options?: string[];
-  format?: (val: any) => string;
+  format?: (val: any, row?: PerformanceRow) => string;
+  sortable?: boolean;
 }
 
 const COLUMNS: FilterCol[] = [
-  { field: "nik", label: "NIK", width: "90px" },
-  { field: "namaAm", label: "Nama AM", width: "140px" },
-  { field: "levelAm", label: "Level AM", width: "80px" },
-  { field: "witelAm", label: "Witel", width: "90px" },
-  { field: "divisi", label: "Divisi AM", width: "70px" },
-  { field: "divisiCc", label: "Divisi CC", width: "70px" },
-  { field: "tahun", label: "Tahun", width: "60px", align: "center" },
-  { field: "bulan", label: "Bulan", width: "55px", align: "center" },
-  { field: "targetRevenue", label: "T. Revenue", width: "110px", align: "right" },
-  { field: "realRevenue", label: "R. Revenue", width: "110px", align: "right" },
-  { field: "targetSustain", label: "T. Sustain", width: "100px", align: "right" },
-  { field: "realSustain", label: "R. Sustain", width: "100px", align: "right" },
-  { field: "targetScaling", label: "T. Scaling", width: "100px", align: "right" },
-  { field: "realScaling", label: "R. Scaling", width: "100px", align: "right" },
-  { field: "targetNgtma", label: "T. NGTMA", width: "100px", align: "right" },
-  { field: "realNgtma", label: "R. NGTMA", width: "100px", align: "right" },
-  { field: "achRate", label: "Ach %", width: "70px", align: "right" },
-  { field: "rankAch", label: "Rank", width: "50px", align: "center" },
-  { field: "statusWarna", label: "Status", width: "70px", align: "center", categorical: true, options: ["hijau","oranye","merah"] },
+  { field: "periode", label: "Periode", width: "90px", align: "center", sortable: true },
+  { field: "nik", label: "NIK", width: "90px", sortable: true },
+  { field: "namaAm", label: "Nama AM", width: "140px", sortable: true },
+  { field: "levelAm", label: "Level AM", width: "80px", sortable: true },
+  { field: "witelAm", label: "Witel", width: "90px", sortable: true },
+  { field: "divisi", label: "Divisi AM", width: "70px", sortable: true },
+  { field: "divisiCc", label: "Divisi CC", width: "70px", sortable: true },
+  { field: "targetRevenue", label: "T. Revenue", width: "110px", align: "right", sortable: true },
+  { field: "realRevenue", label: "R. Revenue", width: "110px", align: "right", sortable: true },
+  { field: "targetSustain", label: "T. Sustain", width: "100px", align: "right", sortable: true },
+  { field: "realSustain", label: "R. Sustain", width: "100px", align: "right", sortable: true },
+  { field: "targetScaling", label: "T. Scaling", width: "100px", align: "right", sortable: true },
+  { field: "realScaling", label: "R. Scaling", width: "100px", align: "right", sortable: true },
+  { field: "targetNgtma", label: "T. NGTMA", width: "100px", align: "right", sortable: true },
+  { field: "realNgtma", label: "R. NGTMA", width: "100px", align: "right", sortable: true },
+  { field: "achRate", label: "Ach %", width: "70px", align: "right", sortable: true },
+  { field: "rankAch", label: "Rank", width: "50px", align: "center", sortable: true },
+  { field: "statusWarna", label: "Status", width: "70px", align: "center", sortable: true },
 ];
 
 function num(v: any): number {
@@ -79,10 +85,9 @@ function num(v: any): number {
   return isNaN(n) ? 0 : n;
 }
 
-function formatVal(col: FilterCol, val: any): string {
+function formatVal(col: FilterCol, val: any, row?: PerformanceRow): string {
   if (val === null || val === undefined || val === "") return "–";
-  if (col.format) return col.format(val);
-  if (col.field === "bulan") return String(val).padStart(2, "0");
+  if (col.format) return col.format(val, row);
   if (col.field === "achRate" || col.field === "achRateYtd") {
     const pct = num(val) * 100;
     return isNaN(pct) ? "–" : pct.toFixed(1) + "%";
@@ -91,6 +96,11 @@ function formatVal(col: FilterCol, val: any): string {
     return formatRupiah(num(val));
   }
   return String(val);
+}
+
+function formatPeriode(tahun: number | null, bulan: number | null): string {
+  if (!tahun || !bulan) return "–";
+  return `${MONTHS_SHORT[bulan - 1] || ""} ${tahun}`;
 }
 
 function ColumnFilterPopup({
@@ -160,20 +170,60 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
   const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
   const [activeFilter, setActiveFilter] = useState<{ field: string; rect: DOMRect } | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [sort, setSort] = useState<SortState>({ field: "", direction: "asc" });
   const rowCount = rows.length;
 
-  useEffect(() => { setPage(1); }, [search, columnFilters]);
+  useEffect(() => { setPage(1); }, [search, columnFilters, sort]);
+
+  const getCellValue = useCallback((row: PerformanceRow, field: string): string | number => {
+    switch (field) {
+      case "periode": {
+        const t = row.tahun ?? 0;
+        const b = row.bulan ?? 0;
+        return t * 100 + b; // numeric sort key
+      }
+      case "achRate": return num(row.achRate);
+      case "rankAch": return row.rankAch ?? 0;
+      case "targetRevenue": return num(row.targetRevenue);
+      case "realRevenue": return num(row.realRevenue);
+      case "targetSustain": return num(row.targetSustain);
+      case "realSustain": return num(row.realSustain);
+      case "targetScaling": return num(row.targetScaling);
+      case "realScaling": return num(row.realScaling);
+      case "targetNgtma": return num(row.targetNgtma);
+      case "realNgtma": return num(row.realNgtma);
+      case "namaAm": return row.namaAm ?? "";
+      case "nik": return row.nik ?? "";
+      case "levelAm": return row.levelAm ?? "";
+      case "witelAm": return row.witelAm ?? "";
+      case "divisi": return row.divisi ?? "";
+      case "divisiCc": return row.divisiCc ?? "";
+      case "statusWarna": return row.statusWarna ?? "";
+      default: return (row as any)[field] ?? "";
+    }
+  }, []);
+
+  const displayValue = useCallback((row: PerformanceRow, col: FilterCol): string => {
+    switch (col.field) {
+      case "periode": return formatPeriode(row.tahun, row.bulan);
+      case "achRate": return num(row.achRate) === 0 ? "–" : (num(row.achRate) * 100).toFixed(1) + "%";
+      case "targetRevenue": case "realRevenue":
+      case "targetSustain": case "realSustain":
+      case "targetScaling": case "realScaling":
+      case "targetNgtma": case "realNgtma":
+        return formatRupiah(num((row as any)[col.field]));
+      default: return String((row as any)[col.field] ?? "–");
+    }
+  }, []);
 
   const dropdownOptions = useMemo(() => {
     const opts: Record<string, string[]> = {};
     for (const col of COLUMNS) {
-      if (col.categorical && !col.options) {
-        const vals = [...new Set(rows.map(r => (r as any)[col.field] || ""))];
-        opts[col.field] = vals.sort((a, b) => a.localeCompare(b));
-      }
+      const vals = [...new Set(rows.map(r => displayValue(r, col)))];
+      opts[col.field] = vals.sort((a, b) => String(a).localeCompare(String(b), "id-ID"));
     }
     return opts;
-  }, [rows]);
+  }, [rows, displayValue]);
 
   const filtered = useMemo(() => {
     let result = rows;
@@ -181,7 +231,7 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     if (q) {
       result = result.filter(r =>
         COLUMNS.some(col => {
-          const val = (r as any)[col.field];
+          const val = displayValue(r, col);
           return typeof val === "string" && val.toLowerCase().includes(q);
         })
       );
@@ -189,15 +239,27 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     for (const [field, selected] of Object.entries(columnFilters)) {
       if (selected.size === 0) continue;
       result = result.filter(r => {
-        const val = (r as any)[field] || "";
+        const val = displayValue(r, COLUMNS.find(c => c.field === field)!);
         return selected.has(val);
       });
     }
     return result;
-  }, [rows, search, columnFilters]);
+  }, [rows, search, columnFilters, displayValue]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const sorted = useMemo(() => {
+    if (!sort.field) return filtered;
+    return [...filtered].sort((a, b) => {
+      const av = getCellValue(a, sort.field);
+      const bv = getCellValue(b, sort.field);
+      const cmp = typeof av === "number" && typeof bv === "number"
+        ? av - bv
+        : String(av).localeCompare(String(bv), "id-ID");
+      return sort.direction === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, sort, getCellValue]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const toggleExpand = useCallback((idx: number) => {
     setExpandedRows(prev => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n; });
@@ -217,28 +279,117 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
   }, []);
 
   const handleFilterSelectAll = useCallback((field: string) => {
-    const opts = COLUMNS.find(c => c.field === field)?.options || dropdownOptions[field] || [];
+    const opts = dropdownOptions[field] || [];
     setColumnFilters(prev => ({ ...prev, [field]: new Set(opts) }));
   }, [dropdownOptions]);
+
+  const handleSort = useCallback((field: string) => {
+    setSort(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  }, []);
+
+  const handleExportExcel = useCallback((data: PerformanceRow[], filename: string) => {
+    const EXCEL_COLS = [
+      { header: "NIK", field: "nik" },
+      { header: "Nama AM", field: "namaAm" },
+      { header: "Level AM", field: "levelAm" },
+      { header: "Witel", field: "witelAm" },
+      { header: "Divisi AM", field: "divisi" },
+      { header: "Divisi CC", field: "divisiCc" },
+      { header: "Periode", field: "periode" },
+      { header: "T. Revenue", field: "targetRevenue" },
+      { header: "R. Revenue", field: "realRevenue" },
+      { header: "T. Sustain", field: "targetSustain" },
+      { header: "R. Sustain", field: "realSustain" },
+      { header: "T. Scaling", field: "targetScaling" },
+      { header: "R. Scaling", field: "realScaling" },
+      { header: "T. NGTMA", field: "targetNgtma" },
+      { header: "R. NGTMA", field: "realNgtma" },
+      { header: "Ach %", field: "achRate" },
+      { header: "Rank", field: "rankAch" },
+      { header: "Status", field: "statusWarna" },
+    ];
+
+    const sheetData = data.map(row => {
+      const rowData: Record<string, any> = {};
+      for (const col of EXCEL_COLS) {
+        if (col.field === "periode") {
+          rowData[col.header] = formatPeriode(row.tahun, row.bulan);
+        } else if (col.field === "achRate") {
+          const v = num(row.achRate);
+          rowData[col.header] = v === 0 ? null : v * 100;
+        } else if (col.field === "targetRevenue" || col.field === "realRevenue" ||
+                   col.field === "targetSustain" || col.field === "realSustain" ||
+                   col.field === "targetScaling" || col.field === "realScaling" ||
+                   col.field === "targetNgtma" || col.field === "realNgtma") {
+          const v = num((row as any)[col.field]);
+          rowData[col.header] = v === 0 ? null : v;
+        } else {
+          rowData[col.header] = (row as any)[col.field] ?? "";
+        }
+      }
+      return rowData;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+
+    // Auto column widths
+    const colWidths = EXCEL_COLS.map(col => {
+      const vals = sheetData.map(r => String(r[col.header] ?? ""));
+      const maxLen = Math.max(col.header.length, ...vals.map(v => v.length));
+      return { wch: Math.min(maxLen + 2, 40) };
+    });
+    ws["!cols"] = colWidths;
+
+    // Bold header row
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+      if (!ws[addr]) continue;
+      ws[addr].s = { font: { bold: true } };
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Import Performa AM");
+    XLSX.writeFile(wb, `${filename}.xlsx`);
+  }, []);
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3 gap-3">
-        <div className="text-xs text-muted-foreground">
-          {filtered.length !== rowCount
-            ? <span><strong className="text-foreground">{filtered.length}</strong> dari {rowCount} baris</span>
-            : <span><strong className="text-foreground">{rowCount}</strong> baris</span>
-          }
-          {Object.keys(columnFilters).length > 0 && (
-            <button onClick={() => setColumnFilters({})} className="ml-3 text-[10px] px-2 py-0.5 rounded border border-border hover:bg-secondary transition-colors text-muted-foreground">
-              Reset filter
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {filtered.length !== rowCount
+              ? <span><strong className="text-foreground">{filtered.length}</strong> dari {rowCount} baris</span>
+              : <span><strong className="text-foreground">{rowCount}</strong> baris</span>
+            }
+            {Object.keys(columnFilters).length > 0 && (
+              <button onClick={() => setColumnFilters({})} className="ml-2 text-[10px] px-2 py-0.5 rounded border border-border hover:bg-secondary transition-colors text-muted-foreground">
+                Reset filter
+              </button>
+            )}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {filtered.length < rowCount && (
+            <button onClick={() => handleExportExcel(sorted, "import_performa_filtered")}
+              className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-border rounded-lg bg-white hover:bg-secondary/50 transition-colors text-foreground shadow-sm">
+              <Download className="w-3.5 h-3.5" />
+              Unduh Filtered ({filtered.length})
             </button>
           )}
-        </div>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari semua kolom..."
-            className="pl-8 pr-3 h-8 text-xs border border-border rounded-lg bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary transition-all w-56" />
+          <button onClick={() => handleExportExcel(rows, "import_performa")}
+            className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-border rounded-lg bg-white hover:bg-secondary/50 transition-colors text-foreground shadow-sm">
+            <Download className="w-3.5 h-3.5" />
+            Unduh All ({rowCount})
+          </button>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari semua kolom..."
+              className="pl-8 pr-3 h-8 text-xs border border-border rounded-lg bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary transition-all w-56" />
+          </div>
         </div>
       </div>
 
@@ -250,10 +401,21 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
               {COLUMNS.map(col => {
                 const hasFilter = (columnFilters[col.field]?.size ?? 0) > 0;
                 const isActive = activeFilter?.field === col.field;
+                const isSorted = sort.field === col.field;
                 return (
                   <th key={col.field} className="px-2 py-2.5 relative" style={{ minWidth: col.width, width: col.width }}>
-                    <div className="flex items-center gap-1">
-                      <span className="truncate">{col.label}</span>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => col.sortable !== false && handleSort(col.field)}
+                        className={cn("flex items-center gap-0.5 truncate", col.sortable !== false && "cursor-pointer hover:text-foreground", col.sortable === false && "cursor-default")}
+                      >
+                        <span>{col.label}</span>
+                        {isSorted && (
+                          sort.direction === "asc"
+                            ? <ArrowUp className="w-2.5 h-2.5 shrink-0" />
+                            : <ArrowDown className="w-2.5 h-2.5 shrink-0" />
+                        )}
+                      </button>
                       <button onClick={(e) => {
                         e.stopPropagation();
                         const rect = (e.currentTarget).getBoundingClientRect();
@@ -290,14 +452,17 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
                     </td>
                     {COLUMNS.map(col => (
                       <td key={col.field}
-                        className={cn("px-2 py-2", col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "", col.field === "achRate" && num(r.achRate) >= 1 ? "text-green-600 font-bold" : col.field === "achRate" && num(r.achRate) >= 0.8 ? "text-orange-500 font-bold" : col.field === "achRate" && num(r.achRate) > 0 ? "text-red-600 font-bold" : "")}>
+                        className={cn("px-2 py-2", col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "",
+                          col.field === "achRate" && num(r.achRate) >= 1 ? "text-green-600 font-bold" :
+                          col.field === "achRate" && num(r.achRate) >= 0.8 ? "text-orange-500 font-bold" :
+                          col.field === "achRate" && num(r.achRate) > 0 ? "text-red-600 font-bold" : "")}>
                         {col.field === "statusWarna" ? (
                           <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold border",
                             r.statusWarna === "hijau" ? "text-green-700 bg-green-50 border-green-200" :
                             r.statusWarna === "oranye" ? "text-orange-700 bg-orange-50 border-orange-200" :
                             "text-red-700 bg-red-50 border-red-200")}>{r.statusWarna?.toUpperCase()}</span>
                         ) : (
-                          <span className={cn("truncate block", col.align === "right" ? "tabular-nums" : "")}>{formatVal(col, (r as any)[col.field])}</span>
+                          <span className={cn("truncate block", col.align === "right" ? "tabular-nums" : "")}>{displayValue(r, col)}</span>
                         )}
                       </td>
                     ))}
@@ -392,7 +557,7 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
 
       {activeFilter && (() => {
         const col = COLUMNS.find(c => c.field === activeFilter.field)!;
-        const opts = col.options || dropdownOptions[activeFilter.field] || [];
+        const opts = dropdownOptions[activeFilter.field] || [];
         if (opts.length === 0) return null;
         return (
           <ColumnFilterPopup

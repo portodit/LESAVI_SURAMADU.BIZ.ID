@@ -238,7 +238,7 @@ router.post("/import/performance", requireAuth, async (req, res): Promise<void> 
 
       const pelanggan = String(r.STANDARD_NAME || r.NAMA_PELANGGAN || r.PELANGGAN || r.pelanggan || r.nama_account || "").trim();
       const nip = String(r.NIP_NAS || r.nip_nas || r.NIP || "").trim();
-      const proporsi = (parseFloat(String(r.PROPORSI ?? r.proporsi ?? 0)) || 0);
+      const proporsi = ((parseFloat(String(r.PROPORSI ?? r.proporsi ?? 0)) || 0) * 100);
       const group = String(r.GROUP || r.group || "").trim();
       const industri = String(r.INDUSTRI || r.industri || "").trim();
       const lsegmen = String(r.LSEGMEN || r.lsegmen || "").trim();

@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useListImportHistory } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
-import { ArrowLeft, Loader2, Database, Search } from "lucide-react";
+import { ArrowLeft, Loader2, Database } from "lucide-react";
 import ActivityDetailTable from "./ActivityDetailTable";
 import PerformanceDetailTable from "./PerformanceDetailTable";
 import FunnelDetailTable from "./FunnelDetailTable";
@@ -97,26 +97,6 @@ export default function ImportDetail({ params }: { params: { id: string } }) {
 
       {/* Data table card */}
       <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4 gap-3">
-          <div className="flex items-center gap-3">
-            <h2 className="text-sm font-display font-bold text-foreground">
-              Data Hasil Import
-            </h2>
-            {dataRows !== null && (
-              <span className="text-xs font-normal text-muted-foreground">({dataRows.length.toLocaleString("id-ID")} baris tersimpan)</span>
-            )}
-          </div>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Cari semua kolom..."
-              className="pl-8 pr-3 h-8 text-xs border border-border rounded-lg bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary transition-all w-56"
-            />
-          </div>
-        </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">

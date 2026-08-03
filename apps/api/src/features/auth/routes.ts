@@ -33,11 +33,15 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  (req as any).session.userId = user.id;
-  (req as any).session.userEmail = user.email;
-  (req as any).session.userRole = user.role;
-  (req as any).session.userNama = user.nama;
-  (req as any).session.userTipe = user.tipe;
+  req.session.userId = user.id;
+  req.session.userEmail = user.email;
+  req.session.userRole = user.role;
+  req.session.userNama = user.nama;
+  req.session.userTipe = user.tipe;
+
+  await new Promise<void>((resolve, reject) => {
+    req.session.save((err) => (err ? reject(err) : resolve()));
+  });
 
   res.json({ id: user.id, email: user.email, role: user.role, nama: user.nama, tipe: user.tipe });
 });

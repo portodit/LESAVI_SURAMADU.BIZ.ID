@@ -32,11 +32,19 @@ const FUNNEL_PHASE_LABELS: Record<string,string> = { F0:"Lead",F1:"Prospect",F2:
 const FUNNEL_PHASE_COLORS: Record<string,string> = { F0:"#93c5fd",F1:"#3b82f6",F2:"#818cf8",F3:"#6366f1",F4:"#8b5cf6",F5:"#10b981" };
 
 function fmtNilaiCompact(n: number): string {
-  if (!n) return "–";
-  if (n >= 1e12) return `${(n/1e12).toFixed(1)}T`;
-  if (n >= 1e9) return `${(n/1e9).toFixed(1)}M`;
-  if (n >= 1e6) return `${Math.round(n/1e6)} jt`;
-  return `Rp${n.toLocaleString("id-ID")}`;
+  if (!n && n !== 0) return "–";
+  const abs = Math.abs(n);
+  let formatted: string;
+  if (abs >= 1e12) {
+    formatted = `${(abs / 1e12).toFixed(1)}T`;
+  } else if (abs >= 1e9) {
+    formatted = `${(abs / 1e9).toFixed(1)}M`;
+  } else if (abs >= 1e6) {
+    formatted = `${Math.round(abs / 1e6)} jt`;
+  } else {
+    formatted = `Rp${abs.toLocaleString("id-ID")}`;
+  }
+  return n < 0 ? `-${formatted}` : formatted;
 }
 const MONTHS_LABEL = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 const MONTHS_FULL  = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
@@ -345,11 +353,19 @@ const FS_PHASE_COLORS: Record<string,{ pill:string; bar:string; text:string }> =
 const FS_MONTHS_ID = ["","Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agt","Sep","Okt","Nov","Des"];
 
 function fmtRupiahFS(n: number): string {
-  if (!n && n!==0) return "–";
-  if (n>=1e12) return `Rp ${(n/1e12).toFixed(2)}T`;
-  if (n>=1e9)  return `Rp ${(n/1e9).toFixed(2)}M`;
-  if (n>=1e6)  return `Rp ${Math.round(n/1e6)} jt`;
-  return `Rp ${n.toLocaleString("id-ID")}`;
+  if (!n && n !== 0) return "–";
+  const abs = Math.abs(n);
+  let formatted: string;
+  if (abs >= 1e12) {
+    formatted = `${(abs / 1e12).toFixed(2)}T`;
+  } else if (abs >= 1e9) {
+    formatted = `${(abs / 1e9).toFixed(2)}M`;
+  } else if (abs >= 1e6) {
+    formatted = `${Math.round(abs / 1e6)} jt`;
+  } else {
+    formatted = abs.toLocaleString("id-ID");
+  }
+  return n < 0 ? `-Rp ${formatted}` : `Rp ${formatted}`;
 }
 function fmtCompactFS(n: number): string {
   if (!n) return "–";
@@ -3036,26 +3052,29 @@ export default function EmbedPerforma() {
     ];
   }, [amTableData]);
 
+  // trendData: only show months that are in filterPeriodes, or all months if no filter
   const trendData = useMemo(() => {
     if (!allPerfs.length || !cmYear) return [];
     const divisiLabel = divisiFilterLabel(filterDivisi);
-    return MONTHS_LABEL.map((month, idx) => {
+    const result = MONTHS_LABEL.map((month, idx) => {
       const mNum = idx + 1;
+      const periodeKey = `${cmYear}-${String(mNum).padStart(2, "0")}`;
+      // If periode filter is active, skip months not in the filter
+      if (filterPeriodes.size > 0 && !filterPeriodes.has(periodeKey)) {
+        return { month, monthFull: `${MONTHS_FULL[idx]} ${cmYear}`, divisiLabel, target: 0, real: 0, ach: 0, _hidden: true };
+      }
       const rows = allPerfs.filter((p: any) =>
         String(p.tahun) === cmYear && p.bulan === mNum &&
         matchesDivisiPerforma(p.divisi, filterDivisi)
       );
-      const target = rows.reduce((s, p) => s + (p.targetRevenue ?? 0), 0);
-      const real = rows.reduce((s, p) => s + (p.realRevenue ?? 0), 0);
+      const target = rows.reduce((s, p) => s + (Number(p.targetRevenue) || 0), 0);
+      const real = rows.reduce((s, p) => s + (Number(p.realRevenue) || 0), 0);
       const ach = target > 0 ? parseFloat(((real / target) * 100).toFixed(1)) : 0;
-      return {
-        month,
-        monthFull: `${MONTHS_FULL[idx]} ${cmYear}`,
-        divisiLabel,
-        target, real, ach,
-      };
-    });
-  }, [allPerfs, cmYear, filterDivisi]);
+      return { month, monthFull: `${MONTHS_FULL[idx]} ${cmYear}`, divisiLabel, target, real, ach };
+    }).filter(d => !d._hidden);
+    console.log("[DEBUG trendData]", JSON.stringify(result));
+    return result;
+  }, [allPerfs, cmYear, filterDivisi, filterPeriodes]);
 
   const totals = useMemo(() => {
     const cmT = amTableData.reduce((s, r) => s + r.cmTarget, 0);
@@ -3677,7 +3696,7 @@ export default function EmbedPerforma() {
                                       </td>
                                     )}
                                     <td className="px-4 py-2 text-right text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(Math.abs(cTarget))}</td>
-                                    <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(Math.abs(cReal))}</td>
+                                    <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(cReal)}</td>
                                     <td className={cn("px-3 py-2 text-right text-xs font-black tabular-nums", cAch >= 100 ? "text-green-600" : cAch >= 80 ? "text-orange-500" : "text-red-500")}>
                                       {typeof cAch === "number" && !isNaN(cAch) ? cAch.toFixed(1) : "0"}%
                                     </td>
@@ -3767,12 +3786,14 @@ export default function EmbedPerforma() {
                 {filterDivisi !== "all" && <span className="ml-2 text-xs text-muted-foreground font-normal">· {divisiFilterLabel(filterDivisi)}</span>}
               </h3>
               <ResponsiveContainer width="100%" height={220}>
-                <ComposedChart data={trendData} margin={{ top: 5, right: 20, left: -10, bottom: 0 }}>
+                <ComposedChart data={trendData} margin={{ top: 5, right: 30, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10 }}
+                    domain={[0, "auto"]}
                     tickFormatter={v => typeof v === "number" && !isNaN(v) ? (v >= 1e9 ? `Rp${(v/1e9).toFixed(0)}M` : v >= 1e6 ? `Rp${(v/1e6).toFixed(0)}Jt` : "0") : "0"} />
-                  <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} domain={[0, 200]} />
+                  <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10 }}
+                    domain={[0, "auto"]} tickFormatter={v => `${v}%`} />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
                   <Bar yAxisId="left" dataKey="real" name="Real Revenue" fill="#22c55e" radius={[3,3,0,0]} maxBarSize={36} />

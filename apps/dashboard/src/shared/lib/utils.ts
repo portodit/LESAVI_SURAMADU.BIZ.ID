@@ -8,10 +8,18 @@ export function cn(...inputs: ClassValue[]) {
 export function formatRupiah(value: number | null | undefined): string {
   const v = value ?? 0;
   if (!Number.isFinite(v)) return "Rp 0";
-  if (v >= 1e12) return `Rp ${(v / 1e12).toFixed(2).replace(".", ",")} T`;
-  if (v >= 1e9) return `Rp ${(v / 1e9).toFixed(2).replace(".", ",")} M`;
-  if (v >= 1e6) return `Rp ${(v / 1e6).toFixed(2).replace(".", ",")} Jt`;
-  return `Rp ${v.toLocaleString("id-ID")}`;
+  const absV = Math.abs(v);
+  let formatted: string;
+  if (absV >= 1e12) {
+    formatted = `${(absV / 1e12).toFixed(2).replace(".", ",")} T`;
+  } else if (absV >= 1e9) {
+    formatted = `${(absV / 1e9).toFixed(2).replace(".", ",")} M`;
+  } else if (absV >= 1e6) {
+    formatted = `${(absV / 1e6).toFixed(2).replace(".", ",")} Jt`;
+  } else {
+    formatted = absV.toLocaleString("id-ID");
+  }
+  return v < 0 ? `-Rp ${formatted}` : `Rp ${formatted}`;
 }
 
 export function formatPercent(value: number | null | undefined): string {
@@ -25,16 +33,26 @@ export function formatRupiahFull(value: number | null | undefined): string {
   const raw = value ?? 0;
   const v = Number(raw);
   if (!Number.isFinite(v)) return "Rp 0";
-  return `Rp ${v.toLocaleString("id-ID")}`;
+  const absV = Math.abs(v);
+  const formatted = absV.toLocaleString("id-ID");
+  return v < 0 ? `-Rp ${formatted}` : `Rp ${formatted}`;
 }
 
 export function formatRupiahShort(value: number | null | undefined): string {
   const v = value ?? 0;
   if (!Number.isFinite(v)) return "Rp0";
-  if (v >= 1e12) return `Rp${(v / 1e12).toFixed(2)}T`;
-  if (v >= 1e9) return `Rp${(v / 1e9).toFixed(2)}M`;
-  if (v >= 1e6) return `Rp${(v / 1e6).toFixed(2)}Jt`;
-  return `Rp${v.toLocaleString("id-ID")}`;
+  const absV = Math.abs(v);
+  let formatted: string;
+  if (absV >= 1e12) {
+    formatted = `${(absV / 1e12).toFixed(2)}T`;
+  } else if (absV >= 1e9) {
+    formatted = `${(absV / 1e9).toFixed(2)}M`;
+  } else if (absV >= 1e6) {
+    formatted = `${(absV / 1e6).toFixed(2)}Jt`;
+  } else {
+    formatted = absV.toLocaleString("id-ID");
+  }
+  return v < 0 ? `-Rp${formatted}` : `Rp${formatted}`;
 }
 
 export function getAchPct(value: number | null | undefined): number {
