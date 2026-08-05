@@ -81,7 +81,6 @@ const NAV_GROUPS = [
   {
     groupLabel: "MENU UTAMA",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/import", label: "Import Data", icon: Upload },
       {
         label: "Visualisasi", icon: BarChart2,

@@ -31,13 +31,44 @@ function formatPeriod(period: string) {
 }
 
 // ─── Main Detail Page ──────────────────────────────────────────────────────────
-export default function ImportDetail({ params }: { params: { id: string } }) {
+export default function ImportDetail({ params }: { params: { type: string; id: string } }) {
   const [, navigate] = useLocation();
+
+  // Redirect: if id is undefined, the URL is the old format (/import/detail/68)
+  // params.type actually contains the ID in this case
+  const hasValidId = params.id !== undefined && params.id !== "";
+
+  useEffect(() => {
+    if (hasValidId) return;
+    const legacyId = params.type; // type param holds the ID when id is missing
+    fetch(`/api/import/${legacyId}`, { credentials: "include" })
+      .then(r => r.json())
+      .then((d: any) => {
+        if (d?.type) {
+          window.location.href = `/import/detail/${d.type}/${legacyId}`;
+        } else {
+          window.location.href = "/import";
+        }
+      })
+      .catch(() => {
+        window.location.href = "/import";
+      });
+  }, [hasValidId, params.type]);
+
+  if (!hasValidId) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">Mengarahkan ulang...</p>
+      </div>
+    );
+  }
+
+  const importType = params.type as "performance" | "funnel" | "activity";
   const importId = parseInt(params.id, 10);
   const { data: history } = useListImportHistory();
 
   const [dataRows, setDataRows] = useState<any[] | null>(null);
-  const [dataType, setDataType] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -51,7 +82,6 @@ export default function ImportDetail({ params }: { params: { id: string } }) {
     apiFetch(`/api/import/${importId}/data`)
       .then((d: any) => {
         setDataRows(d.rows || []);
-        setDataType(d.type || "");
       })
       .catch((e: any) => setError(e?.message || "Gagal memuat data"))
       .finally(() => setLoading(false));
@@ -78,14 +108,14 @@ export default function ImportDetail({ params }: { params: { id: string } }) {
             {imp ? (
               <>
                 <h1 className="text-base font-display font-bold text-foreground leading-snug">
-                  {formatSnapshotTitle(imp.createdAt, imp.type, imp.snapshotDate)}
+                  {formatSnapshotTitle(imp?.createdAt || "", importType, imp?.snapshotDate)}
                 </h1>
                 <div className="flex flex-wrap gap-4 mt-3 text-xs text-muted-foreground">
-                  <span>Import ID: <strong className="text-foreground">#{imp.id}</strong></span>
-                  <span>Tipe: <strong className="text-foreground">{imp.type === "performance" ? "Performa AM" : imp.type === "funnel" ? "Sales Funnel" : "Sales Activity"}</strong></span>
-                  <span>Periode: <strong className="text-foreground">{formatPeriod(imp.period)}</strong></span>
-                  <span>Total baris: <strong className="text-foreground">{imp.rowsImported?.toLocaleString("id-ID")} baris</strong></span>
-                  <span>Diimport: <strong className="text-foreground">{format(new Date(imp.createdAt), "dd MMMM yyyy, HH:mm:ss", { locale: id })} WIB</strong></span>
+                  <span>Import ID: <strong className="text-foreground">#{importId}</strong></span>
+                  <span>Tipe: <strong className="text-foreground">{importType === "performance" ? "Performa AM" : importType === "funnel" ? "Sales Funnel" : "Sales Activity"}</strong></span>
+                  <span>Periode: <strong className="text-foreground">{formatPeriod(imp?.period || "")}</strong></span>
+                  <span>Total baris: <strong className="text-foreground">{imp?.rowsImported?.toLocaleString("id-ID")} baris</strong></span>
+                  <span>Diimport: <strong className="text-foreground">{imp?.createdAt ? format(new Date(imp.createdAt), "dd MMMM yyyy, HH:mm:ss", { locale: id }) + " WIB" : "–"}</strong></span>
                 </div>
               </>
             ) : (
@@ -107,9 +137,9 @@ export default function ImportDetail({ params }: { params: { id: string } }) {
           <div className="text-center py-12 text-red-600 text-sm">{error}</div>
         ) : !dataRows?.length ? (
           <div className="text-center py-12 text-muted-foreground text-sm">Tidak ada data untuk import ini</div>
-        ) : dataType === "performance" ? (
-          <PerformanceDetailTable rows={dataRows} />
-        ) : dataType === "funnel" ? (
+        ) : importType === "performance" ? (
+          <PerformanceDetailTable rows={dataRows} importId={importId} />
+        ) : importType === "funnel" ? (
           <FunnelDetailTable rows={dataRows} />
         ) : (
           <ActivityDetailTable rows={dataRows} importId={importId} search={search} />

@@ -713,3 +713,200 @@ export function exportPivotCacheToXlsx(result: PivotCacheResult): Buffer {
   const xlsxb = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
   return Buffer.from(xlsxb);
 }
+
+// ─── RAW Format Detection & Multi-Sheet Transformation ─────────────────────────
+
+const RAW_REQUIRED_COLS = ["PERIODE", "NIK", "NAMA_AM", "STANDARD_NAME", "WITEL_CC", "PROPORSI"];
+
+/**
+ * Check if rows are already in RAW format (one row per customer).
+ * RAW rows have PERIODE + NIK + NAMA_AM + STANDARD_NAME + WITEL_CC + PROPORSI columns.
+ */
+export function isRawFormat(rows: ParsedRow[]): boolean {
+  if (rows.length < 1) return false;
+  const first = rows[0];
+  const keys = Object.keys(first).map(k => k.toUpperCase());
+  const score = RAW_REQUIRED_COLS.filter(col => keys.includes(col)).length;
+  // All 6 required columns must be present
+  return score === RAW_REQUIRED_COLS.length;
+}
+
+/**
+ * Detect if a workbook is a multi-sheet Perf. AM file (not RAW).
+ * Returns true when the workbook has multiple sheets and the first sheet
+ * lacks the PERIODE column (indicating it's the Perf. AM aggregated format).
+ */
+export function isMultiSheetPerfFile(buffer: Buffer): boolean {
+  try {
+    const wb = XLSX.read(buffer, { type: "buffer", bookSheets: true });
+    // Has multiple sheets = likely Perf. AM multi-sheet format
+    return wb.SheetNames.length > 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Transform a multi-sheet Perf. AM file into RAW format (one row per customer per period).
+ *
+ * Strategy: parse "Perf. CC" sheet for customer-level data, join with "NIPNAS2AM"
+ * sheet to resolve NIPNAS → AM (NIK + NAMA_AM), then reshape from
+ * "periods-as-columns" layout into "one-row-per-period" rows.
+ *
+ * Perf. CC column layout (multi-period version):
+ *   A: DIVISI      B: NIP_NAS_GROUP  C: STANDARD_NAME
+ *   D: TARGET_REV_1  E: REAL_REV_1  F: a_rev_1
+ *   G: TARGET_REV_2  H: REAL_REV_2  I: a_rev_2
+ *   ... (repeating for each period)
+ *   last 3 cols: Total TARGET, Total REAL, Total a_rev
+ *
+ * The header row (row 6) has nulls where period values would be in columns D,E,F,
+ * and the actual period codes (e.g. "202601") appear in row 5.
+ */
+export function transformMultiSheetToRaw(buffer: Buffer): ParsedRow[] {
+  const wb = XLSX.read(buffer, { type: "buffer", raw: true, defval: null, cellDates: true });
+
+  // ── 1. Build NIPNAS → AM lookup from "NIPNAS2AM" sheet ──────────────────
+  // Format: NIPNAS (number), AM (string like "920064-ERVINA HANDAYANI")
+  const nipnas2am = new Map<string, { nik: string; namaAm: string }>();
+  const nipnasSheet = wb.Sheets["NIPNAS2AM"];
+  if (nipnasSheet) {
+    const nipnasRaw = XLSX.utils.sheet_to_json(nipnasSheet, { header: 1, defval: null, raw: true }) as any[][];
+    for (let i = 1; i < nipnasRaw.length; i++) {
+      const row = nipnasRaw[i];
+      if (!row || row[0] == null) continue;
+      const nipnasStr = String(row[0]).trim();
+      const amRaw = String(row[1] ?? "").trim();
+      if (!nipnasStr || !amRaw) continue;
+      // AM field may contain multiple AMs separated by ", " — take the first one
+      const amFirst = amRaw.split(",")[0].trim();
+      const dashIdx = amFirst.indexOf("-");
+      if (dashIdx > 0) {
+        const nik = amFirst.slice(0, dashIdx);
+        const namaAm = amFirst.slice(dashIdx + 1).trim();
+        nipnas2am.set(nipnasStr, { nik, namaAm });
+      }
+    }
+  }
+
+  // ── 2. Parse "Perf. CC" sheet for customer data ─────────────────────────
+  const ccSheet = wb.Sheets["Perf. CC"];
+  if (!ccSheet) return [];
+
+  const ccRaw = XLSX.utils.sheet_to_json(ccSheet, { header: 1, defval: null, raw: true }) as any[][];
+  if (ccRaw.length < 8) return [];
+
+  // Find header row (row with "DIVISI" and "NIP_NAS_GROUP")
+  let headerRowIdx = -1;
+  for (let i = 0; i < ccRaw.length; i++) {
+    const row = ccRaw[i];
+    if (row && (row[0] === "DIVISI" || row[0] === "NIP_NAS_GROUP")) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+  if (headerRowIdx < 0) return [];
+
+  const headerRow = ccRaw[headerRowIdx] as any[];
+  const dataRows = ccRaw.slice(headerRowIdx + 1);
+
+  // Parse period codes from row 5 (index 5) — columns D onwards (index 3+)
+  // Row 5: [null, null, null, "202601", null, null, "202602", null, null, ...]
+  // Period codes appear in columns 3, 6, 9, 12, ... (every 3rd column after col 3)
+  const periodRow = ccRaw[5] || [];
+  const periods: string[] = [];
+  for (let col = 3; col < periodRow.length - 3; col += 3) {
+    const p = periodRow[col];
+    if (p != null && String(p).trim()) {
+      periods.push(String(p).trim());
+    }
+  }
+
+  // Header indices within data rows (relative to headerRowIdx):
+  // Col 0 = DIVISI, Col 1 = NIP_NAS_GROUP, Col 2 = STANDARD_NAME
+  // For each period at offset colOffset, we have: colOffset = TARGET, colOffset+1 = REAL, colOffset+2 = a_rev
+  // Total columns at end: 3 cols before periods (DIVISI, NIP_NAS, NAME) + periods.length*3 + 3 total cols
+
+  // ── 3. Transform: one row per customer per period ────────────────────────
+  // Note: Perf. CC uses merged cells for DIVISI — forward-fill through groups
+  const rawRows: ParsedRow[] = [];
+  let currentDivisi = "";
+
+  for (const dataRow of dataRows) {
+    if (!dataRow || dataRow.length < 3) continue;
+    // Forward-fill DIVISI: merged cells only have value in first row of group
+    const divisiCell = String(dataRow[0] ?? "").trim();
+    if (divisiCell) currentDivisi = divisiCell;
+    const nipNasGroup = String(dataRow[1] ?? "").trim();
+    const stdName = String(dataRow[2] ?? "").trim();
+
+    // Skip subtotal / total rows
+    if (!nipNasGroup || isNaN(Number(nipNasGroup))) continue;
+
+    // Look up AM from NIPNAS2AM
+    const amInfo = nipnas2am.get(nipNasGroup);
+    if (!amInfo) continue;
+
+    // Extract revenue for each period
+    for (let pIdx = 0; pIdx < periods.length; pIdx++) {
+      const periode = periods[pIdx];
+      const colBase = 3 + pIdx * 3; // TARGET_REV column for this period
+      const targetRev = dataRow[colBase] != null ? parseIndonesianNumber(dataRow[colBase]) : 0;
+      const realRev = dataRow[colBase + 1] != null ? parseIndonesianNumber(dataRow[colBase + 1]) : 0;
+      const aRev = dataRow[colBase + 2] != null ? parseFloat(String(dataRow[colBase + 2])) || 0 : 0;
+
+      // Compute achievement rate
+      const achRate = targetRev > 0 ? realRev / targetRev : 0;
+
+      // Default fields that don't exist in the non-RAW source
+      const tahun = parseInt(periode.slice(0, 4), 10);
+      const bulan = parseInt(periode.slice(4, 6), 10);
+
+      rawRows.push({
+        PERIODE: periode,
+        NIK: amInfo.nik,
+        NAMA_AM: amInfo.namaAm,
+        LEVEL_AM: "",
+        POSITION: "",
+        WITEL_AM: "SURAMADU",
+        DIVISI_AM: currentDivisi,
+        NIP_NAS_GROUP: nipNasGroup,
+        NIP_NAS: nipNasGroup,
+        STANDARD_NAME: stdName,
+        GROUP: "",
+        INDUSTRI: "",
+        LSEGMEN: "",
+        SSEGMEN: "",
+        WITEL_CC: "SURAMADU",
+        TELDA: "",
+        REGIONAL: "TREG 3",
+        DIVISI_CC: currentDivisi,
+        KAWASAN: "",
+        PROPORSI: 0,
+        LAYANAN: "",
+        TARGET_REVENUE: targetRev,
+        TARGET_SUSTAIN: 0,
+        TARGET_SCALING: 0,
+        TARGET_NGTMA: 0,
+        REAL_REVENUE: realRev,
+        REAL_SUSTAIN: 0,
+        REAL_SCALING: 0,
+        REAL_NGTMA: 0,
+        REVENUE_BASE: 0,
+        REVENUE_BILLCOM: 0,
+        a_rev: aRev,
+        a_ngtma: 0,
+        a_scaling: 0,
+        a_sustain: 0,
+        kw: achRate >= 1 ? "hijau" : achRate >= 0.8 ? "oranye" : "merah",
+        // Extra columns (not in DB but kept for compatibility)
+        divisi_raw: currentDivisi,
+        tahun,
+        bulan,
+        ach_rate: achRate,
+      });
+    }
+  }
+
+  return rawRows;
+}

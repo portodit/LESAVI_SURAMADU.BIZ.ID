@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, ChevronLeft, Search, X, ArrowUp, ArrowDown, Download } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronLeft, Search, X, ArrowUp, ArrowDown, Download, Loader2 } from "lucide-react";
 import { cn, formatRupiah } from "@/shared/lib/utils";
 import * as XLSX from "xlsx";
 
@@ -44,6 +44,9 @@ export interface PerformanceRow {
 
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
+type AchTimeScope = "monthly" | "yearly";
+type AchComponent = "real" | "sustain" | "scaling";
+
 interface SortState {
   field: string;
   direction: "asc" | "desc";
@@ -54,55 +57,34 @@ interface FilterCol {
   label: string;
   width: string;
   align?: "right" | "center";
-  format?: (val: any, row?: PerformanceRow) => string;
   sortable?: boolean;
+  editable?: boolean;
+  editableType?: "text" | "number";
+  defaultEditable?: boolean;
 }
 
 const COLUMNS: FilterCol[] = [
-  { field: "periode", label: "Periode", width: "90px", align: "center", sortable: true },
-  { field: "nik", label: "NIK", width: "90px", sortable: true },
-  { field: "namaAm", label: "Nama AM", width: "140px", sortable: true },
-  { field: "levelAm", label: "Level AM", width: "80px", sortable: true },
-  { field: "witelAm", label: "Witel", width: "90px", sortable: true },
-  { field: "divisi", label: "Divisi AM", width: "70px", sortable: true },
-  { field: "divisiCc", label: "Divisi CC", width: "70px", sortable: true },
-  { field: "targetRevenue", label: "T. Revenue", width: "110px", align: "right", sortable: true },
-  { field: "realRevenue", label: "R. Revenue", width: "110px", align: "right", sortable: true },
-  { field: "targetSustain", label: "T. Sustain", width: "100px", align: "right", sortable: true },
-  { field: "realSustain", label: "R. Sustain", width: "100px", align: "right", sortable: true },
-  { field: "targetScaling", label: "T. Scaling", width: "100px", align: "right", sortable: true },
-  { field: "realScaling", label: "R. Scaling", width: "100px", align: "right", sortable: true },
-  { field: "targetNgtma", label: "T. NGTMA", width: "100px", align: "right", sortable: true },
-  { field: "realNgtma", label: "R. NGTMA", width: "100px", align: "right", sortable: true },
-  { field: "achRate", label: "Ach %", width: "70px", align: "right", sortable: true },
-  { field: "rankAch", label: "Rank", width: "50px", align: "center", sortable: true },
-  { field: "statusWarna", label: "Status", width: "70px", align: "center", sortable: true },
+  { field: "periode", label: "Periode", width: "90px", align: "center", sortable: true, editable: true },
+  { field: "nik", label: "NIK", width: "90px", sortable: true, editable: true },
+  { field: "namaAm", label: "Nama AM", width: "140px", sortable: true, editable: true },
+  { field: "levelAm", label: "Level AM", width: "80px", sortable: true, editable: true },
+  { field: "witelAm", label: "Witel", width: "90px", sortable: true, editable: true },
+  { field: "divisi", label: "Divisi AM", width: "70px", sortable: true, editable: true },
+  { field: "divisiCc", label: "Divisi CC", width: "70px", sortable: true, editable: true },
+  { field: "targetRevenue", label: "T. Revenue", width: "110px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "realRevenue", label: "R. Revenue", width: "110px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "targetSustain", label: "T. Sustain", width: "100px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "realSustain", label: "R. Sustain", width: "100px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "targetScaling", label: "T. Scaling", width: "100px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "realScaling", label: "R. Scaling", width: "100px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "targetNgtma", label: "T. NGTMA", width: "100px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "realNgtma", label: "R. NGTMA", width: "100px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "achRate", label: "Ach %", width: "70px", align: "right", sortable: true, editable: true, editableType: "number" },
+  { field: "rankAch", label: "Rank", width: "50px", align: "center", sortable: true, editable: true, editableType: "number" },
+  { field: "statusWarna", label: "Status", width: "70px", align: "center", sortable: true, editable: true },
 ];
 
-function num(v: any): number {
-  if (v === null || v === undefined || v === "") return 0;
-  const n = parseFloat(v);
-  return isNaN(n) ? 0 : n;
-}
-
-function formatVal(col: FilterCol, val: any, row?: PerformanceRow): string {
-  if (val === null || val === undefined || val === "") return "–";
-  if (col.format) return col.format(val, row);
-  if (col.field === "achRate" || col.field === "achRateYtd") {
-    const pct = num(val) * 100;
-    return isNaN(pct) ? "–" : pct.toFixed(1) + "%";
-  }
-  if (col.align === "right" && !col.categorical) {
-    return formatRupiah(num(val));
-  }
-  return String(val);
-}
-
-function formatPeriode(tahun: number | null, bulan: number | null): string {
-  if (!tahun || !bulan) return "–";
-  return `${MONTHS_SHORT[bulan - 1] || ""} ${tahun}`;
-}
-
+// ─── Column Filter Popup ────────────────────────────────────────────────────────
 function ColumnFilterPopup({
   field, options, selected, onToggle, onClear, onSelectAll, anchorRect, onClose,
 }: {
@@ -129,11 +111,13 @@ function ColumnFilterPopup({
     zIndex: 9999,
   };
 
+  const colLabel = COLUMNS.find(c => c.field === field)?.label || field;
+
   return createPortal(
     <div ref={ref} style={style} className="bg-card border border-border rounded-xl shadow-2xl w-64 overflow-hidden"
       onMouseDown={e => e.stopPropagation()}>
       <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/30">
-        <span className="text-xs font-semibold text-foreground">{COLUMNS.find(c => c.field === field)?.label}</span>
+        <span className="text-xs font-semibold text-foreground">{colLabel}</span>
         <button onMouseDown={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
           <X className="w-3.5 h-3.5" />
         </button>
@@ -164,25 +148,91 @@ function ColumnFilterPopup({
   );
 }
 
-export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[] }) {
+// ─── Cascading Ach Selectors ─────────────────────────────────────────────────────
+function AchDropdown({
+  label, options, value, onChange,
+}: {
+  label: string; options: { value: string; label: string }[]; value: string; onChange: (v: string) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="h-7 pl-2 pr-6 text-[11px] font-semibold rounded-lg border border-primary/30 bg-primary/8 text-primary appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 hover:bg-primary/15 transition-colors"
+      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
+    >
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{label}: {o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+const TIME_SCOPES = [
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly (YTD)" },
+];
+
+const ACH_COMPONENTS = [
+  { value: "real", label: "Real Revenue" },
+  { value: "sustain", label: "Sustain" },
+  { value: "scaling", label: "Scaling" },
+];
+
+function num(v: any): number {
+  if (v === null || v === undefined || v === "") return 0;
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function formatPeriode(tahun: number | null, bulan: number | null): string {
+  if (!tahun || !bulan) return "–";
+  return `${MONTHS_SHORT[bulan - 1] || ""} ${tahun}`;
+}
+
+function calcAch(timeScope: AchTimeScope, component: AchComponent, row: PerformanceRow): number {
+  if (timeScope === "yearly") return num(row.achRateYtd);
+  if (component === "sustain") {
+    const t = num(row.targetSustain); const r = num(row.realSustain);
+    return t > 0 ? r / t : 0;
+  }
+  if (component === "scaling") {
+    const t = num(row.targetScaling); const r = num(row.realScaling);
+    return t > 0 ? r / t : 0;
+  }
+  // real (default)
+  const t = num(row.targetRevenue); const r = num(row.realRevenue);
+  return t > 0 ? r / t : 0;
+}
+
+export default function PerformanceDetailTable({ rows: initialRows, importId }: { rows: PerformanceRow[]; importId: number }) {
+  const [rows, setRows] = useState<PerformanceRow[]>(initialRows);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
   const [activeFilter, setActiveFilter] = useState<{ field: string; rect: DOMRect } | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [sort, setSort] = useState<SortState>({ field: "", direction: "asc" });
+  const [achTimeScope, setAchTimeScope] = useState<AchTimeScope>("monthly");
+  const [achComponent, setAchComponent] = useState<AchComponent>("real");
+  const [editCell, setEditCell] = useState<{ rowId: number; field: string } | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [originalValue, setOriginalValue] = useState("");
+  const [saving, setSaving] = useState(false);
   const rowCount = rows.length;
 
-  useEffect(() => { setPage(1); }, [search, columnFilters, sort]);
+  useEffect(() => { setPage(1); }, [search, columnFilters, sort, achTimeScope, achComponent]);
+
+  // ── Ach mode column label
+  const achCol = COLUMNS.find(c => c.field === "achRate")!;
+  const timeScopeLabel = TIME_SCOPES.find(t => t.value === achTimeScope)?.label ?? "Monthly";
+  const compLabel = ACH_COMPONENTS.find(c => c.value === achComponent)?.label ?? "Real Revenue";
+  const achLabel = `Ach ${timeScopeLabel} ${compLabel}`;
 
   const getCellValue = useCallback((row: PerformanceRow, field: string): string | number => {
     switch (field) {
-      case "periode": {
-        const t = row.tahun ?? 0;
-        const b = row.bulan ?? 0;
-        return t * 100 + b; // numeric sort key
-      }
-      case "achRate": return num(row.achRate);
+      case "periode": return (row.tahun ?? 0) * 100 + (row.bulan ?? 0);
+      case "achRate": return calcAch(achTimeScope, achComponent, row);
       case "rankAch": return row.rankAch ?? 0;
       case "targetRevenue": return num(row.targetRevenue);
       case "realRevenue": return num(row.realRevenue);
@@ -192,29 +242,22 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
       case "realScaling": return num(row.realScaling);
       case "targetNgtma": return num(row.targetNgtma);
       case "realNgtma": return num(row.realNgtma);
-      case "namaAm": return row.namaAm ?? "";
-      case "nik": return row.nik ?? "";
-      case "levelAm": return row.levelAm ?? "";
-      case "witelAm": return row.witelAm ?? "";
-      case "divisi": return row.divisi ?? "";
-      case "divisiCc": return row.divisiCc ?? "";
-      case "statusWarna": return row.statusWarna ?? "";
-      default: return (row as any)[field] ?? "";
+      default: return String((row as any)[field] ?? "");
     }
-  }, []);
+  }, [achTimeScope, achComponent]);
 
   const displayValue = useCallback((row: PerformanceRow, col: FilterCol): string => {
-    switch (col.field) {
-      case "periode": return formatPeriode(row.tahun, row.bulan);
-      case "achRate": return num(row.achRate) === 0 ? "–" : (num(row.achRate) * 100).toFixed(1) + "%";
-      case "targetRevenue": case "realRevenue":
-      case "targetSustain": case "realSustain":
-      case "targetScaling": case "realScaling":
-      case "targetNgtma": case "realNgtma":
-        return formatRupiah(num((row as any)[col.field]));
-      default: return String((row as any)[col.field] ?? "–");
+    const isAch = col.field === "achRate";
+    if (isAch) {
+      const v = calcAch(achTimeScope, achComponent, row);
+      return v === 0 ? "–" : (v * 100).toFixed(1) + "%";
     }
-  }, []);
+    if (col.field === "periode") return formatPeriode(row.tahun, row.bulan);
+    if (col.align === "right" && col.field !== "statusWarna") {
+      return formatRupiah(num((row as any)[col.field]));
+    }
+    return String((row as any)[col.field] ?? "–");
+  }, [achTimeScope, achComponent]);
 
   const dropdownOptions = useMemo(() => {
     const opts: Record<string, string[]> = {};
@@ -239,8 +282,8 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     for (const [field, selected] of Object.entries(columnFilters)) {
       if (selected.size === 0) continue;
       result = result.filter(r => {
-        const val = displayValue(r, COLUMNS.find(c => c.field === field)!);
-        return selected.has(val);
+        const val = displayValue(r, COLUMNS.find(c => c.field === field)!, row);
+        return selected.has(typeof val === "number" ? val.toString() : val);
       });
     }
     return result;
@@ -290,6 +333,44 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     }));
   }, []);
 
+  const handleSave = useCallback(async () => {
+    if (!editCell) return;
+    const { rowId, field } = editCell;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/import/${importId}/rows/${rowId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field, value: editValue }),
+      });
+      if (res.ok) {
+        setRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: editValue } : r));
+      } else {
+        alert("Gagal menyimpan.");
+      }
+      setEditCell(null);
+    } catch {
+      alert("Gagal menyimpan. Coba lagi.");
+    } finally {
+      setSaving(false);
+    }
+  }, [editCell, editValue, importId]);
+
+  const handleCellDoubleClick = useCallback((rowId: number, field: string, value: string) => {
+    setEditCell({ rowId, field });
+    setEditValue(value || "");
+    setOriginalValue(value || "");
+  }, []);
+
+  const handleEditKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleSave();
+    if (e.key === "Escape") {
+      setEditCell(null);
+      setEditValue(originalValue);
+    }
+  }, [handleSave, originalValue]);
+
   const handleExportExcel = useCallback((data: PerformanceRow[], filename: string) => {
     const EXCEL_COLS = [
       { header: "NIK", field: "nik" },
@@ -318,12 +399,10 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
         if (col.field === "periode") {
           rowData[col.header] = formatPeriode(row.tahun, row.bulan);
         } else if (col.field === "achRate") {
-          const v = num(row.achRate);
+          const v = calcAch(achTimeScope, achComponent, row);
           rowData[col.header] = v === 0 ? null : v * 100;
-        } else if (col.field === "targetRevenue" || col.field === "realRevenue" ||
-                   col.field === "targetSustain" || col.field === "realSustain" ||
-                   col.field === "targetScaling" || col.field === "realScaling" ||
-                   col.field === "targetNgtma" || col.field === "realNgtma") {
+        } else if (["targetRevenue", "realRevenue", "targetSustain", "realSustain",
+                     "targetScaling", "realScaling", "targetNgtma", "realNgtma"].includes(col.field)) {
           const v = num((row as any)[col.field]);
           rowData[col.header] = v === 0 ? null : v;
         } else {
@@ -334,8 +413,6 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     });
 
     const ws = XLSX.utils.json_to_sheet(sheetData);
-
-    // Auto column widths
     const colWidths = EXCEL_COLS.map(col => {
       const vals = sheetData.map(r => String(r[col.header] ?? ""));
       const maxLen = Math.max(col.header.length, ...vals.map(v => v.length));
@@ -343,7 +420,6 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     });
     ws["!cols"] = colWidths;
 
-    // Bold header row
     const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
     for (let C = range.s.c; C <= range.e.c; ++C) {
       const addr = XLSX.utils.encode_cell({ r: 0, c: C });
@@ -354,15 +430,24 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Import Performa AM");
     XLSX.writeFile(wb, `${filename}.xlsx`);
-  }, []);
+  }, [achTimeScope, achComponent]);
+
+  // Build columns with dynamic Ach label
+  const activeColumns = useMemo(() => COLUMNS.map(col =>
+    col.field === "achRate" ? { ...col, label: achLabel } : col
+  ), [achLabel]);
 
   return (
     <div>
+      {/* Toolbar */}
       <div className="flex items-center justify-between mb-3 gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <AchDropdown label="Periode" options={TIME_SCOPES} value={achTimeScope} onChange={v => setAchTimeScope(v as AchTimeScope)} />
+          <AchDropdown label="Komponen" options={ACH_COMPONENTS} value={achComponent} onChange={v => setAchComponent(v as AchComponent)} />
+          <div className="h-5 w-px bg-border" />
           <span className="text-xs text-muted-foreground">
             {filtered.length !== rowCount
-              ? <span><strong className="text-foreground">{filtered.length}</strong> dari {rowCount} baris</span>
+              ? <span><strong className="text-foreground">{filtered.length}</strong> dari <strong className="text-foreground">{rowCount}</strong> baris</span>
               : <span><strong className="text-foreground">{rowCount}</strong> baris</span>
             }
             {Object.keys(columnFilters).length > 0 && (
@@ -393,12 +478,18 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
         </div>
       </div>
 
+      {/* Edit hint */}
+      <div className="mb-2 flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        <span>Klik dua kali sel untuk edit langsung (seperti Excel)</span>
+      </div>
+
       <div className="overflow-x-auto border border-border rounded-xl">
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="bg-secondary/50 text-muted-foreground font-semibold text-[10px] uppercase tracking-wide">
               <th className="px-2 py-2.5 w-5"></th>
-              {COLUMNS.map(col => {
+              {activeColumns.map(col => {
                 const hasFilter = (columnFilters[col.field]?.size ?? 0) > 0;
                 const isActive = activeFilter?.field === col.field;
                 const isSorted = sort.field === col.field;
@@ -433,7 +524,7 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
           </thead>
           <tbody className="divide-y divide-border/50">
             {paged.length === 0 && (
-              <tr><td colSpan={COLUMNS.length + 1} className="text-center py-12 text-muted-foreground">
+              <tr><td colSpan={activeColumns.length + 1} className="text-center py-12 text-muted-foreground">
                 {search || Object.keys(columnFilters).length > 0 ? "Tidak ada baris yang cocok" : "Tidak ada data"}
               </td></tr>
             )}
@@ -443,33 +534,76 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
                 try { return r.komponenDetail ? JSON.parse(r.komponenDetail) : []; } catch { return []; }
               })();
               const isExpanded = expandedRows.has(absIdx);
+              const achVal = calcAch(achTimeScope, achComponent, r);
+
               return (
                 <React.Fragment key={r.id}>
-                  <tr className={cn("transition-colors", customers.length > 0 ? "cursor-pointer hover:bg-secondary/20" : "hover:bg-secondary/10", isExpanded && "bg-secondary/10")}
-                    onClick={() => customers.length > 0 && toggleExpand(absIdx)}>
+                  <tr className={cn("transition-colors group", editCell?.rowId === r.id && "bg-primary/5", customers.length > 0 ? "cursor-pointer hover:bg-secondary/20" : "hover:bg-secondary/10", isExpanded && "bg-secondary/10")}
+                    onClick={() => customers.length > 0 && !editCell && toggleExpand(absIdx)}>
                     <td className="px-2 py-2 text-muted-foreground">
                       {customers.length > 0 ? (isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />) : null}
                     </td>
-                    {COLUMNS.map(col => (
-                      <td key={col.field}
-                        className={cn("px-2 py-2", col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "",
-                          col.field === "achRate" && num(r.achRate) >= 1 ? "text-green-600 font-bold" :
-                          col.field === "achRate" && num(r.achRate) >= 0.8 ? "text-orange-500 font-bold" :
-                          col.field === "achRate" && num(r.achRate) > 0 ? "text-red-600 font-bold" : "")}>
-                        {col.field === "statusWarna" ? (
-                          <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold border",
-                            r.statusWarna === "hijau" ? "text-green-700 bg-green-50 border-green-200" :
-                            r.statusWarna === "oranye" ? "text-orange-700 bg-orange-50 border-orange-200" :
-                            "text-red-700 bg-red-50 border-red-200")}>{r.statusWarna?.toUpperCase()}</span>
-                        ) : (
-                          <span className={cn("truncate block", col.align === "right" ? "tabular-nums" : "")}>{displayValue(r, col)}</span>
-                        )}
-                      </td>
-                    ))}
+                    {activeColumns.map(col => {
+                      const isEditing = editCell?.rowId === r.id && editCell?.field === col.field;
+
+                      // Ach% color
+                      const achColor = col.field === "achRate" ? (
+                        achVal >= 1 ? "text-green-600 font-bold" :
+                        achVal >= 0.8 ? "text-orange-500 font-bold" :
+                        achVal > 0 ? "text-red-600 font-bold" : ""
+                      ) : "";
+
+                      if (isEditing) {
+                        const numType = col.editableType === "number";
+                        return (
+                          <td
+                            key={col.field}
+                            className={cn("px-1 py-1.5", col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "")}
+                          >
+                            <input
+                              autoFocus
+                              type={numType ? "number" : "text"}
+                              value={editValue}
+                              onChange={e => setEditValue(e.target.value)}
+                              onKeyDown={handleEditKeyDown}
+                              onBlur={() => { if (editValue !== originalValue) handleSave(); else setEditCell(null); }}
+                              className="w-full h-7 px-1 bg-white border-2 border-primary rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 tabular-nums"
+                            />
+                          </td>
+                        );
+                      }
+
+                      return (
+                        <td
+                          key={col.field}
+                          className={cn("px-1 py-1.5 relative group", col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "", achColor)}
+                          onDoubleClick={() => handleCellDoubleClick(r.id, col.field, String((r as any)[col.field] ?? ""))}
+                        >
+                          {col.field === "statusWarna" ? (
+                            <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold border",
+                              r.statusWarna === "hijau" ? "text-green-700 bg-green-50 border-green-200" :
+                              r.statusWarna === "oranye" ? "text-orange-700 bg-orange-50 border-orange-200" :
+                              "text-red-700 bg-red-50 border-red-200")}>{r.statusWarna?.toUpperCase()}</span>
+                          ) : (
+                            <>
+                              <span className="px-1 truncate block tabular-nums">{displayValue(r, col)}</span>
+                              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground/30">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                  </svg>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                   {isExpanded && customers.length > 0 && (
                     <tr>
-                      <td colSpan={COLUMNS.length + 1} className="px-0 py-0 bg-secondary/5">
+                      <td colSpan={activeColumns.length + 1} className="px-0 py-0 bg-secondary/5">
                         <div className="mx-3 my-1.5 border border-border/60 rounded-lg overflow-x-auto">
                           <table className="w-full text-[10px] text-left">
                             <thead>
@@ -532,6 +666,7 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
         </table>
       </div>
 
+      {/* Pagination */}
       <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
         <span>Halaman {page} dari {totalPages}</span>
         <div className="flex gap-1">
@@ -555,8 +690,9 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
         </div>
       </div>
 
+      {/* Column filter popup */}
       {activeFilter && (() => {
-        const col = COLUMNS.find(c => c.field === activeFilter.field)!;
+        const col = activeColumns.find(c => c.field === activeFilter.field)!;
         const opts = dropdownOptions[activeFilter.field] || [];
         if (opts.length === 0) return null;
         return (
@@ -572,5 +708,15 @@ export default function PerformanceDetailTable({ rows }: { rows: PerformanceRow[
         );
       })()}
     </div>
+  );
+}
+
+// Lazy import Loader2 for the saving spinner
+function Loader2({ className }: { className?: string }) {
+  return (
+    <svg className={cn("animate-spin", className)} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
   );
 }

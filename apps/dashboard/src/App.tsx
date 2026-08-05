@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/shared/ui/toaster";
@@ -75,9 +75,8 @@ function ProtectedApp() {
   return (
     <DashboardLayout>
       <Switch>
-        <Route path="/dashboard" component={Dashboard} />
         <Route path="/import" component={ImportData} />
-        <Route path="/import/detail/:id">{(params: any) => <ImportDetail params={params} />}</Route>
+        <Route path="/import/detail/:type/:id">{(params: any) => <ImportDetail params={params} />}</Route>
         <Route path="/visualisasi/performa" component={PerformaVis} />
         <Route path="/visualisasi/funnel" component={FunnelVis} />
         <Route path="/visualisasi/activity" component={ActivityVis} />
@@ -85,14 +84,19 @@ function ProtectedApp() {
         <Route path="/corporate-customers" component={CorporateCustomerPage} />
         <Route path="/telegram" component={TelegramBot} />
         <Route path="/pengaturan" component={PengaturanPage} />
-        <Route path="/"><Redirect to="/dashboard" /></Route>
-        <Route><div className="p-8 text-center text-muted-foreground">Halaman tidak ditemukan</div></Route>
+        <Route path="/dashboard" component={ImportData} />
+        <Route path="/"><Redirect to="/import" /></Route>
+        <Route><Redirect to="/import" /></Route>
       </Switch>
     </DashboardLayout>
   );
 }
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+// Initialize baseUrl BEFORE any component renders (module-level)
+const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
+setBaseUrl(apiUrl);
 
 function PresentationGuard() {
   const session = getPresentationSession();
@@ -114,11 +118,6 @@ function AppRouter() {
 }
 
 function App() {
-  useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
-    setBaseUrl(apiUrl);
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

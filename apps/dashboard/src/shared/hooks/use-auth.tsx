@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect } from "react";
+import React, { createContext, useContext, useEffect, useRef } from "react";
 import { useGetMe, useLogin, useLogout, type AuthResponse, type LoginBody } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/shared/hooks/use-toast";
@@ -17,8 +17,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
-  const { data: user, isLoading: isUserLoading, refetch } = useGetMe({
+  const hasLoginStarted = useRef(false);
+
+  const { data: user, isLoading: isUserLoading, isFetching } = useGetMe({
     query: {
       retry: false,
       staleTime: Infinity,
@@ -29,26 +30,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logoutMutation = useLogout();
 
   const login = async (data: LoginBody) => {
+    hasLoginStarted.current = true;
     try {
-      const result = await loginMutation.mutateAsync({ data });
-      // Set user directly from login response — no need to refetch /api/auth/me
-      queryClient.setQueryData(["getMe"], result);
+      await loginMutation.mutateAsync({ data });
       toast({ title: "Login berhasil", description: "Selamat datang kembali.", variant: "success" });
-      setLocation("/dashboard");
+      // Invalidate getMe so React Query refetches and all consumers (including ProtectedApp) update
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      // Give the refetch a moment to complete before navigation
+      await new Promise(r => setTimeout(r, 80));
+      setLocation("/import");
     } catch (err: any) {
-      toast({ 
-        title: "Login gagal", 
-        description: err.error || "Email atau password salah", 
-        variant: "destructive" 
+      hasLoginStarted.current = false;
+      toast({
+        title: "Login gagal",
+        description: err.error || "Email atau password salah",
+        variant: "destructive"
       });
       throw err;
     }
   };
 
   const logout = async () => {
+    hasLoginStarted.current = false;
     try {
       await logoutMutation.mutateAsync();
-      // Hapus semua cache query agar user data tidak tersimpan stale
       queryClient.clear();
       setLocation("/login");
     } catch (err) {
@@ -57,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user: user || null, isLoading: isUserLoading, login, logout }}>
+    <AuthContext.Provider value={{ user: user || null, isLoading: isUserLoading || (isFetching && hasLoginStarted.current), login, logout }}>
       {children}
     </AuthContext.Provider>
   );

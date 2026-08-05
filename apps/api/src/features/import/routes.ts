@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import fs from "fs";
+import path from "path";
 import { db, dataImportsTable, performanceDataTable, salesFunnelTable, salesActivityTable, accountManagersTable, appSettingsTable, masterCustomerTable, pool } from "@workspace/db";
 import { desc, eq, and, sql } from "drizzle-orm";
 import { requireAuth } from "../../shared/auth";
@@ -7,6 +9,7 @@ import {
   detectPeriod, extractSnapshotDateFromUrl, slugify,
   cleanFunnelRows, cleanActivityRows, parseIndonesianNumber,
   detectExcelFormat, parsePivotCache, pivotCacheRowsToParsedRows,
+  isRawFormat, isMultiSheetPerfFile, transformMultiSheetToRaw,
   type ParsedRow, type PivotCacheResult
 } from "./excel";
 import { sendReminderToAllAMs } from "../telegram/service";
@@ -49,19 +52,66 @@ async function resolveRows(body: any): Promise<{ rows: any[]; sourceUrl: string 
       // Pivot cache format: use Cache 2 (Perf. AM) which has NIK/DIVISI columns.
       // NAMA_AM may be absent in this file — resolve afterward via account_managers lookup.
       const cache = await parsePivotCache(buffer, 2);
-      const rows = pivotCacheRowsToParsedRows(cache);
+      let rows = pivotCacheRowsToParsedRows(cache);
+
+      // If pivot cache rows don't have PERIODE (non-RAW), fall back to multi-sheet transform.
+      // Some files have both pivot cache AND sheet data that is more complete.
+      if (!isRawFormat(rows) && isMultiSheetPerfFile(buffer)) {
+        const transformed = transformMultiSheetToRaw(buffer);
+        if (transformed.length > 0) {
+          rows = transformed;
+        }
+      }
+
       return { rows, sourceUrl: null, snapshotDate: snapshotDate || null, isPivotFormat: true };
     }
 
-    // Fallback to normal sheet parsing
-    const rows = parseExcelFromBase64(fileData, sheetName || undefined);
+    // Check workbook structure BEFORE parsing a specific sheet.
+    // For multi-sheet Perf. AM files (non-RAW), the data lives in "Perf. CC",
+    // NOT in the user-selected sheet. We must force use Perf. CC.
+    let rows: any[];
+    const firstSheetRows = parseExcelFromBase64(fileData, undefined);
+    const needsMultiSheetTransform = isMultiSheetPerfFile(buffer) && !isRawFormat(firstSheetRows);
+    if (needsMultiSheetTransform) {
+      const transformed = transformMultiSheetToRaw(buffer);
+      if (transformed.length > 0) {
+        rows = transformed;
+      } else {
+        rows = firstSheetRows; // fallback to first sheet
+      }
+    } else {
+      rows = parseExcelFromBase64(fileData, sheetName || undefined);
+    }
+
     return { rows, sourceUrl: null, snapshotDate: snapshotDate || null, isPivotFormat: false };
   }
 
   if (url) {
-    const rows = await parseExcelFromUrl(url, sheetName || undefined);
-    const detectedDate = snapshotDate || extractSnapshotDateFromUrl(url);
-    return { rows, sourceUrl: url, snapshotDate: detectedDate, isPivotFormat: false };
+    // Download and cache locally so we can re-use the buffer for format detection
+    const tempDir = path.join(process.cwd(), ".tmp-import");
+    await fs.mkdir(tempDir, { recursive: true });
+    const localPath = path.join(tempDir, `${Date.now()}-${path.basename(url)}`);
+
+    try {
+      await downloadFile(url, localPath);
+      const buffer = await fs.readFile(localPath);
+      const detectedDate = snapshotDate || extractSnapshotDateFromUrl(url);
+
+      // Auto-detect and transform non-RAW multi-sheet files
+      let rows = parseExcelFromBase64(buffer.toString("base64"), sheetName || undefined);
+      if (!isRawFormat(rows)) {
+        if (isMultiSheetPerfFile(buffer)) {
+          const transformed = transformMultiSheetToRaw(buffer);
+          if (transformed.length > 0) {
+            rows = transformed;
+            return { rows, sourceUrl: url, snapshotDate: detectedDate, isPivotFormat: false };
+          }
+        }
+      }
+      return { rows, sourceUrl: url, snapshotDate: detectedDate, isPivotFormat: false };
+    } finally {
+      if (await pathExists(localPath)) await fs.unlink(localPath);
+    }
   }
   throw new Error("URL SharePoint atau file Excel diperlukan");
 }
@@ -1000,7 +1050,7 @@ router.patch("/import/:importId/rows/:rowId", requireAuth, async (req, res): Pro
   const { field, value } = req.body as { field: string; value: string };
   if (!field || value === undefined) { res.status(400).json({ error: "field dan value wajib" }); return; }
 
-  const editableFields: Record<string, any> = {
+  const activityEditableFields: Record<string, any> = {
     nik: null, fullname: null, divisi: null, segmen: null, regional: null,
     witel: null, nipnas: null, caName: null, activityType: null, label: null,
     lopid: null, createdatActivity: null, activityStartDate: null,
@@ -1008,22 +1058,88 @@ router.patch("/import/:importId/rows/:rowId", requireAuth, async (req, res): Pro
     picRole: null, picPhone: null, activityNotes: null, snapshotDate: null,
   };
 
-  if (!(field in editableFields)) {
-    res.status(400).json({ error: "Field tidak dapat diedit" }); return;
+  const performanceEditableFields: Record<string, string> = {
+    nik: "text", namaAm: "text", divisi: "text", divisiCc: "text",
+    witelAm: "text", levelAm: "text",
+    tahun: "number", bulan: "number",
+    targetRevenue: "number", realRevenue: "number",
+    targetReguler: "number", realReguler: "number",
+    targetSustain: "number", realSustain: "number",
+    targetScaling: "number", realScaling: "number",
+    targetNgtma: "number", realNgtma: "number",
+    rankAch: "number",
+  };
+
+  const [imp] = await db.select().from(dataImportsTable).where(eq(dataImportsTable.id, importId)).limit(1);
+  if (!imp) { res.status(404).json({ error: "Import tidak ditemukan" }); return; }
+
+  if (imp.type === "activity") {
+    if (!(field in activityEditableFields)) {
+      res.status(400).json({ error: "Field tidak dapat diedit" }); return;
+    }
+    const [existing] = await db.select({ id: salesActivityTable.id })
+      .from(salesActivityTable)
+      .where(and(eq(salesActivityTable.id, rowId), eq(salesActivityTable.importId, importId)))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: "Baris tidak ditemukan" }); return; }
+    await db.update(salesActivityTable)
+      .set({ [field]: value } as any)
+      .where(and(eq(salesActivityTable.id, rowId), eq(salesActivityTable.importId, importId)));
+    res.json({ success: true });
+  } else if (imp.type === "performance") {
+    if (!(field in performanceEditableFields)) {
+      res.status(400).json({ error: "Field tidak dapat diedit" }); return;
+    }
+    const colMap: Record<string, string> = {
+      nik: "nik", namaAm: "nama_am", divisi: "divisi", divisiCc: "divisi_cc",
+      witelAm: "witel_am", levelAm: "level_am",
+      tahun: "tahun", bulan: "bulan",
+      targetRevenue: "target_revenue", realRevenue: "real_revenue",
+      targetReguler: "target_reguler", realReguler: "real_reguler",
+      targetSustain: "target_sustain", realSustain: "real_sustain",
+      targetScaling: "target_scaling", realScaling: "real_scaling",
+      targetNgtma: "target_ngtma", realNgtma: "real_ngtma",
+      rankAch: "rank_ach",
+    };
+    const dbCol = colMap[field];
+    const type = performanceEditableFields[field];
+    const dbVal = type === "number" ? parseFloat(String(value)) : String(value);
+
+    const [existing] = await db.select({ id: performanceDataTable.id })
+      .from(performanceDataTable)
+      .where(and(eq(performanceDataTable.id, rowId), eq(performanceDataTable.importId, importId)))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: "Baris tidak ditemukan" }); return; }
+
+    const updateVal: any = { [dbCol]: dbVal };
+    // Auto-recalculate achRate when revenue fields change
+    if (["targetRevenue", "realRevenue", "targetReguler", "realReguler",
+         "targetSustain", "realSustain", "targetScaling", "realScaling",
+         "targetNgtma", "realNgtma"].includes(field)) {
+      const [row] = await db.select().from(performanceDataTable)
+        .where(and(eq(performanceDataTable.id, rowId), eq(performanceDataTable.importId, importId)))
+        .limit(1);
+      const tReg = field === "targetReguler" ? dbVal : (row?.targetReguler ?? 0);
+      const rReg = field === "realReguler" ? dbVal : (row?.realReguler ?? 0);
+      const tSust = field === "targetSustain" ? dbVal : (row?.targetSustain ?? 0);
+      const rSust = field === "realSustain" ? dbVal : (row?.realSustain ?? 0);
+      const tScal = field === "targetScaling" ? dbVal : (row?.targetScaling ?? 0);
+      const rScal = field === "realScaling" ? dbVal : (row?.realScaling ?? 0);
+      const tNgtma = field === "targetNgtma" ? dbVal : (row?.targetNgtma ?? 0);
+      const rNgtma = field === "realNgtma" ? dbVal : (row?.realNgtma ?? 0);
+      const totalTarget = (Number(tReg) || 0) + (Number(tSust) || 0) + (Number(tScal) || 0) + (Number(tNgtma) || 0);
+      const totalReal = (Number(rReg) || 0) + (Number(rSust) || 0) + (Number(rScal) || 0) + (Number(rNgtma) || 0);
+      updateVal.achRate = totalTarget > 0 ? totalReal / totalTarget : 0;
+      updateVal.statusWarna = updateVal.achRate >= 1 ? "hijau" : updateVal.achRate >= 0.8 ? "oranye" : "merah";
+    }
+
+    await db.update(performanceDataTable)
+      .set(updateVal as any)
+      .where(and(eq(performanceDataTable.id, rowId), eq(performanceDataTable.importId, importId)));
+    res.json({ success: true });
+  } else {
+    res.status(400).json({ error: `Edit tidak didukung untuk tipe ${imp.type}` });
   }
-
-  const [existing] = await db.select({ id: salesActivityTable.id })
-    .from(salesActivityTable)
-    .where(and(eq(salesActivityTable.id, rowId), eq(salesActivityTable.importId, importId)))
-    .limit(1);
-
-  if (!existing) { res.status(404).json({ error: "Baris tidak ditemukan" }); return; }
-
-  await db.update(salesActivityTable)
-    .set({ [field]: value } as any)
-    .where(and(eq(salesActivityTable.id, rowId), eq(salesActivityTable.importId, importId)));
-
-  res.json({ success: true });
 });
 
 export default router;

@@ -604,10 +604,17 @@ function formatDurasi(m: number | null | undefined): string {
 function formatRupiahCompact(val: number | null | undefined): string {
   if (!val) return "Rp 0";
   const abs = Math.abs(val);
-  if (abs >= 1_000_000_000_000) return `Rp ${(val / 1_000_000_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} T`;
-  if (abs >= 1_000_000_000) return `Rp ${(val / 1_000_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} M`;
-  if (abs >= 1_000_000) return `Rp ${(val / 1_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Jt`;
-  return `Rp ${val.toLocaleString("id-ID")}`;
+  let formatted: string;
+  if (abs >= 1_000_000_000_000) {
+    formatted = `${(abs / 1_000_000_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} T`;
+  } else if (abs >= 1_000_000_000) {
+    formatted = `${(abs / 1_000_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} M`;
+  } else if (abs >= 1_000_000) {
+    formatted = `${(abs / 1_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Jt`;
+  } else {
+    formatted = abs.toLocaleString("id-ID");
+  }
+  return val < 0 ? `-Rp ${formatted}` : `Rp ${formatted}`;
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
