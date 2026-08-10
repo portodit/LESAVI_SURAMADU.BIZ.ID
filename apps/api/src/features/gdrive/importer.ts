@@ -277,15 +277,20 @@ export async function importPerformance(rows: ParsedRow[], sourceUrl: string, pe
 }
 
 export async function importFunnel(rows: ParsedRow[], sourceUrl: string, period: string | null, snapshotDate: string, _fileName: string) {
+  // Check if IS_REPORT column exists in the data
+  const hasIsReport = rows.length > 0 && "IS_REPORT" in (rows[0] as any);
+  if (!hasIsReport) {
+    throw new Error("Gagal import: kolom IS_REPORT tidak ditemukan dalam file. Pastikan file yang diimport memiliki kolom IS_REPORT (Y/N).");
+  }
+
   // pembuatOnly=true → AM attribution mengikuti `nik_pembuat_lop` saja, persis seperti Power BI / Excel pivot "PIVOT F".
   // Tanpa ini, default `nik_handling[0]` ikut nyangkut sehingga LOP yang HANDLE-nya AM lain tetap terhitung
   // → over-count NI MADE/ERVINA/SAFIRINA → total LOP > pivot Excel.
-
   const allAms = await db.select({ nik: accountManagersTable.nik, nama: accountManagersTable.nama, divisi: accountManagersTable.divisi }).from(accountManagersTable);
 
   // skipWitelFilter: true → AM Suramadu bisa handle customer di witel lain (e.g. ERVINA handle JATIM TIMUR),
   // PIVOT F Excel tidak filter by witel customer, hanya by nama_pembuat_lop. Tanpa ini 2 LOP ERVINA (LOP257524, LOP258475) ter-exclude → total 360 bukan 362.
-  const cleaned = cleanFunnelRows(rows, { pembuatOnly: true, skipIsReportFilter: true, skipWitelFilter: true });
+  const cleaned = cleanFunnelRows(rows, { pembuatOnly: true, skipWitelFilter: true });
 
   function findAm(nikRaw: string, namaRaw: string) {
     const nik = String(nikRaw || "").trim();

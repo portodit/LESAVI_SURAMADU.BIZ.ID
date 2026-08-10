@@ -305,7 +305,7 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
     const VALID_DIVISI = new Set(["DPS", "DSS"]);
     if (!opts?.skipDivisiFilter && !VALID_DIVISI.has(divisi)) continue;
 
-    // ── STEP 3: NIK AM extraction
+    // ── STEP 3: NIK AM extraction (allow null — NIK can be edited post-import)
     let nikRaw: number | null;
     if (opts?.pembuatOnly) {
       nikRaw = toIntSafe(r.NIK_PEMBUAT_LOP);
@@ -315,31 +315,22 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
         ? (toIntSafe(r.NIK_PEMBUAT_LOP) ?? toIntSafe(nikHandlingFirst))
         : (toIntSafe(nikHandlingFirst) ?? toIntSafe(r.NIK_PEMBUAT_LOP));
     }
-    if (nikRaw === null) continue;
 
     // Reni (850099) → Havea (870022): Power BI applies this only for report_date.Year >= 2026
     const reportDateForNik = parseDate(r.REPORT_DATE);
     const reportYearForNik = reportDateForNik ? parseInt(reportDateForNik.slice(0, 4), 10) : 0;
-    let nikAm = String(nikRaw);
+    let nikAm = nikRaw !== null ? String(nikRaw) : "";
     if (nikAm === "850099" && (!opts?.pembuatOnly || reportYearForNik >= 2026)) nikAm = "870022";
 
-    // ── STEP 4: Reject garbage NIKs
-    if (nikAm.length < 4 || Number(nikAm) > 9999999) continue;
-
-    // ── STEP 5: Filter is_report = 'Y'
+    // ── STEP 4: Filter is_report = 'Y'
     if (!opts?.skipIsReportFilter) {
       const isReportRaw = r.IS_REPORT ?? null;
-      if (opts?.strictIsReport) {
-        const isReportStr = isReportRaw !== null && isReportRaw !== undefined && isReportRaw !== ""
-          ? String(isReportRaw).trim().toUpperCase() : "";
-        if (isReportStr !== "Y" && isReportStr !== "1" && isReportStr !== "YES" && isReportStr !== "TRUE") continue;
-      } else if (isReportRaw !== null && isReportRaw !== undefined && isReportRaw !== "") {
-        const isReportStr = String(isReportRaw).trim().toUpperCase();
-        if (isReportStr !== "Y" && isReportStr !== "1" && isReportStr !== "YES" && isReportStr !== "TRUE") continue;
-      }
+      const isReportStr = isReportRaw !== null && isReportRaw !== undefined && isReportRaw !== ""
+        ? String(isReportRaw).trim().toUpperCase() : "";
+      if (isReportStr !== "Y" && isReportStr !== "1" && isReportStr !== "YES" && isReportStr !== "TRUE") continue;
     }
 
-    // ── STEP 6: Fix AM name — RENI WULANSARI → HAVEA PERTIWI
+    // ── STEP 5: Fix AM name — RENI WULANSARI → HAVEA PERTIWI
     let namaAm = cleanUpper(r.NAMA_PEMBUAT_LOP);
     if (namaAm === "RENI WULANSARI" && (!opts?.pembuatOnly || reportYearForNik >= 2026)) namaAm = "HAVEA PERTIWI";
 
