@@ -16,6 +16,7 @@ export const accountManagersTable = pgTable("account_managers", {
   witel: text("witel").notNull().default("SURAMADU"),
   jabatan: text("jabatan"),
   aktif: boolean("aktif").notNull().default(true),
+  roleId: integer("role_id"),
   crossWitel: boolean("cross_witel").notNull().default(false),
   telegramChatId: text("telegram_chat_id"),
   telegramCode: text("telegram_code"),
