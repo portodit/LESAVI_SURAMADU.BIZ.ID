@@ -3,7 +3,7 @@ import { db, appSettingsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
-router.get("/public/settings", async (_req, res): Promise<void> => {
+router.get("/settings", async (_req, res): Promise<void> => {
   const [settings] = await db.select({
     kpiActivityDefault: appSettingsTable.kpiActivityDefault,
   }).from(appSettingsTable).limit(1);

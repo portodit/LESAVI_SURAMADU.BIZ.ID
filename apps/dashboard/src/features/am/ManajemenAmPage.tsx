@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { matchesDivisi } from "@/shared/lib/divisi";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Trash2, Users, Wifi, WifiOff, Search, X,
@@ -30,6 +29,8 @@ interface User {
   segmen: string | null;
   witel: string;
   telegramChatId: string | null;
+  telegramUsername: string | null;
+  telegramDisplayName: string | null;
   telegramConnected: boolean;
   kpiActivity: number;
   crossWitel: boolean;
@@ -49,11 +50,13 @@ interface UserFormData {
   segmen: string;
   witel: string;
   telegramChatId: string;
+  telegramUsername: string;
+  telegramDisplayName: string;
 }
 
 const EMPTY_FORM: UserFormData = {
   nik: "", nama: "", email: "", role: "AM", tipe: "LESA",
-  divisi: "DPS", segmen: "", witel: "SURAMADU", telegramChatId: "",
+  divisi: "DPS", segmen: "", witel: "SURAMADU", telegramChatId: "", telegramUsername: "", telegramDisplayName: "",
 };
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -143,14 +146,14 @@ function ConfirmDeleteDialog({ open, onClose, onConfirm, name, loading }: {
 // ─── Role & Tipe configs ──────────────────────────────────────────────────────
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  OFFICER: { label: "Officer", color: "text-purple-700", bg: "bg-purple-100", border: "border-purple-200" },
-  MANAGER: { label: "Manager", color: "text-orange-700", bg: "bg-orange-100", border: "border-orange-200" },
-  AM:      { label: "AM",      color: "text-emerald-700", bg: "bg-emerald-100", border: "border-emerald-200" },
+  ADMIN:         { label: "Admin",         color: "text-red-700",     bg: "bg-red-100",       border: "border-red-200" },
+  OFFICER:       { label: "Officer",       color: "text-purple-700", bg: "bg-purple-100",    border: "border-purple-200" },
+  MANAGER:       { label: "Manager",       color: "text-orange-700", bg: "bg-orange-100",   border: "border-orange-200" },
+  ACCOUNT_MANAGER: { label: "AM",           color: "text-emerald-700", bg: "bg-emerald-100", border: "border-emerald-200" },
 };
 
 const TIPE_CONFIG: Record<string, { color: string; bg: string; border: string }> = {
   LESA: { color: "text-blue-700", bg: "bg-blue-50", border: "border-blue-200" },
-  GOVT: { color: "text-cyan-700",  bg: "bg-cyan-50",  border: "border-cyan-200" },
 };
 
 const DIVISI_CONFIG: Record<string, { color: string; bg: string; border: string }> = {
@@ -182,15 +185,14 @@ function UserFormDialog({ open, onClose, onSubmit, initial, loading, mode }: {
   }
 
   const isOfficer = form.role === "OFFICER";
-  const isManager = form.role === "MANAGER";
-  const isAM = form.role === "AM";
+  const isAccountManager = form.role === "ACCOUNT_MANAGER";
 
   function validate(): boolean {
     const errs: Partial<UserFormData> = {};
     if (!form.nama.trim()) errs.nama = "Nama wajib diisi";
     if (!isOfficer && !form.nik.trim()) errs.nik = "NIK wajib diisi";
     if (!isOfficer && form.nik.trim() && !/^\d+$/.test(form.nik.trim())) errs.nik = "NIK harus berupa angka";
-    if (isAM && !form.divisi) errs.divisi = "Divisi wajib dipilih";
+    if (isAccountManager && !form.divisi) errs.divisi = "Divisi wajib dipilih";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -201,15 +203,16 @@ function UserFormDialog({ open, onClose, onSubmit, initial, loading, mode }: {
   }
 
   const roleOptions = [
-    { v: "AM", label: "Account Manager" },
+    { v: "ACCOUNT_MANAGER", label: "Account Manager" },
     { v: "MANAGER", label: "Manager" },
     { v: "OFFICER", label: "Officer" },
+    { v: "ADMIN", label: "Admin" },
   ];
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Users className="w-4 h-4 text-primary" />
             {mode === "add" ? "Tambah Anggota" : "Edit Anggota"}
@@ -219,41 +222,35 @@ function UserFormDialog({ open, onClose, onSubmit, initial, loading, mode }: {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-1">
+        <form onSubmit={handleSubmit} className="space-y-4 py-1 overflow-y-auto flex-1 min-h-0 pr-1">
 
-          {/* Role Selector */}
+          {/* Role */}
           <FormField label="Role">
-            <div className="flex gap-2">
-              {roleOptions.map(opt => (
-                <button
-                  key={opt.v} type="button"
-                  onClick={() => setForm(f => ({ ...f, role: opt.v }))}
-                  className={cn(
-                    "flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-colors",
-                    form.role === opt.v
-                      ? "bg-primary text-white border-primary"
-                      : "bg-secondary text-muted-foreground border-border hover:border-primary/40"
-                  )}
-                >{opt.label}</button>
-              ))}
-            </div>
+            <select
+              value={form.role}
+              onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+              className={cn(
+                "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors",
+                "focus:outline-none focus:ring-1 focus:ring-ring"
+              )}
+            >
+              {roleOptions.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+            </select>
           </FormField>
 
           {/* Tipe */}
           <FormField label="Tipe">
             <div className="flex gap-2">
-              {[{ v: "LESA", label: "LESA" }, { v: "GOVT", label: "GOVT" }].map(opt => (
-                <button
-                  key={opt.v} type="button"
-                  onClick={() => setForm(f => ({ ...f, tipe: opt.v, divisi: opt.v === "GOVT" ? "DGS" : f.divisi === "DGS" ? "DPS" : f.divisi }))}
-                  className={cn(
-                    "flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-colors",
-                    form.tipe === opt.v
-                      ? "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-700"
-                      : "bg-secondary text-muted-foreground border-border hover:border-red-300/50"
-                  )}
-                >{opt.label}</button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, tipe: "LESA" }))}
+                className={cn(
+                  "flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-colors",
+                  form.tipe === "LESA"
+                    ? "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-700"
+                    : "bg-secondary text-muted-foreground border-border hover:border-red-300/50"
+                )}
+              >LESA</button>
             </div>
           </FormField>
 
@@ -268,7 +265,7 @@ function UserFormDialog({ open, onClose, onSubmit, initial, loading, mode }: {
                 />
               </FormField>
             )}
-            {isAM && (
+            {isAccountManager && (
               <FormField label="Divisi" required error={errors.divisi}>
                 <SelectField
                   value={form.divisi}
@@ -301,7 +298,7 @@ function UserFormDialog({ open, onClose, onSubmit, initial, loading, mode }: {
             </FormField>
           )}
 
-          {isAM && (
+          {isAccountManager && (
             <>
               <div className="grid grid-cols-2 gap-4">
                 <FormField label="Segmen">
@@ -329,22 +326,34 @@ function UserFormDialog({ open, onClose, onSubmit, initial, loading, mode }: {
                 </FormField>
               </div>
 
-              <FormField label="Telegram Chat ID">
+              <FormField label="Telegram User ID">
+                <Input
+                  value={form.telegramUsername} onChange={set("telegramUsername")}
+                  placeholder="@username Telegram (opsional)"
+                />
+              </FormField>
+              <FormField label="Nama Telegram">
+                <Input
+                  value={form.telegramDisplayName} onChange={set("telegramDisplayName")}
+                  placeholder="Nama tampil Telegram (opsional)"
+                />
+              </FormField>
+              <FormField label="Chat ID (Bot)">
                 <Input
                   value={form.telegramChatId} onChange={set("telegramChatId")}
-                  placeholder="mis. 123456789"
+                  placeholder="ID untuk bot kirim pesan (auto dari Telegram)"
                 />
               </FormField>
             </>
           )}
 
-          <DialogFooter className="pt-2 gap-2 sm:gap-2">
+          <div className="flex items-center justify-end gap-2 shrink-0">
             <Button type="button" variant="outline" onClick={onClose} disabled={loading}>Batal</Button>
             <Button type="submit" disabled={loading}>
               {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               {mode === "add" ? "Tambah Anggota" : "Simpan Perubahan"}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -357,11 +366,11 @@ function UserRow({ user, onEdit, onDelete, isPrivileged, onToggleAktif, toggling
   user: User; onEdit: () => void; onDelete: () => void;
   isPrivileged: boolean; onToggleAktif: () => void; togglingAktif: boolean;
 }) {
-  const role = user.role || "AM";
-  const roleCfg = ROLE_CONFIG[role] ?? ROLE_CONFIG["AM"];
+  const role = user.role || "ACCOUNT_MANAGER";
+  const roleCfg = ROLE_CONFIG[role] ?? ROLE_CONFIG["ACCOUNT_MANAGER"];
   const tipeCfg = user.tipe ? (TIPE_CONFIG[user.tipe] ?? TIPE_CONFIG["LESA"]) : TIPE_CONFIG["LESA"];
   const divisiCfg = DIVISI_CONFIG[user.divisi] ?? DIVISI_CONFIG["DPS"];
-  const isAM = role === "AM";
+  const isAccountManager = role === "ACCOUNT_MANAGER";
   const isNonaktif = !user.aktif;
 
   return (
@@ -404,7 +413,7 @@ function UserRow({ user, onEdit, onDelete, isPrivileged, onToggleAktif, toggling
             {user.email && (
               <p className="text-[10px] text-muted-foreground truncate max-w-[200px]">{user.email}</p>
             )}
-            {user.crossWitel && isAM && !isNonaktif && (
+            {user.crossWitel && isAccountManager && !isNonaktif && (
               <span className="text-[10px] text-amber-600 font-bold">Cross Witel</span>
             )}
           </div>
@@ -429,7 +438,7 @@ function UserRow({ user, onEdit, onDelete, isPrivileged, onToggleAktif, toggling
 
       {/* Divisi */}
       <td className="px-4 py-3">
-        {isAM ? (
+        {isAccountManager ? (
           <Badge className={cn("text-[11px] font-bold border", isNonaktif ? "bg-muted text-muted-foreground border-border opacity-70" : cn(divisiCfg.bg, divisiCfg.color, divisiCfg.border))}>
             {user.divisi}
           </Badge>
@@ -452,27 +461,41 @@ function UserRow({ user, onEdit, onDelete, isPrivileged, onToggleAktif, toggling
 
       {/* Segmen */}
       <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-        {isAM ? (user.segmen || <span className="text-border text-xs">—</span>) : <span className="text-muted-foreground/40 text-xs">—</span>}
+        {isAccountManager ? (user.segmen || <span className="text-border text-xs">—</span>) : <span className="text-muted-foreground/40 text-xs">—</span>}
       </td>
 
       {/* Telegram */}
       <td className="px-4 py-3">
-        {isAM ? (user.telegramConnected ? (
+        {isAccountManager ? (user.telegramConnected ? (
           <div className="flex items-center gap-1.5">
             <Wifi className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-            <span className="text-xs font-semibold text-emerald-600">Terhubung</span>
+            <div className="min-w-0">
+              <span className="text-xs font-semibold text-emerald-600 block truncate max-w-[100px]">
+                {user.telegramUsername ? `@${user.telegramUsername}` : user.telegramDisplayName || "Terhubung"}
+              </span>
+              {user.telegramDisplayName && user.telegramUsername && (
+                <span className="text-[10px] text-muted-foreground/60 block truncate max-w-[100px]">{user.telegramDisplayName}</span>
+              )}
+            </div>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5">
-            <WifiOff className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-            <span className="text-xs text-muted-foreground/60">Belum</span>
+          <div className="flex flex-col gap-0.5">
+            {user.telegramUsername ? (
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-mono text-muted-foreground/60">@{user.telegramUsername}</span>
+              </div>
+            ) : null}
+            <div className="flex items-center gap-1.5">
+              <WifiOff className="w-3 h-3 text-muted-foreground/40 shrink-0" />
+              <span className="text-[10px] text-muted-foreground/50">Belum</span>
+            </div>
           </div>
         )) : <span className="text-xs text-muted-foreground/40">—</span>}
       </td>
 
-      {/* Status Aktif — hanya relevan untuk role AM (officer/manager tidak muncul di visualisasi) */}
+      {/* Status Aktif */}
       <td className="px-4 py-3">
-        {!isAM ? (
+        {!isAccountManager ? (
           <span className="text-xs text-muted-foreground/40">—</span>
         ) : isPrivileged ? (
           <button
@@ -535,13 +558,13 @@ function StatCard({ icon, label, value, sub, color }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type FilterRole = "all" | "AM" | "MANAGER" | "OFFICER";
-type FilterDivisi = "all" | "LESA" | "GOVT" | "DPS" | "DSS";
+type FilterRole = "all" | "ACCOUNT_MANAGER" | "MANAGER" | "OFFICER" | "ADMIN";
+type FilterDivisi = "all" | "DPS" | "DSS" | "DGS";
 
 export default function ManajemenAmPage() {
   const qc = useQueryClient();
   const { user: currentUser } = useAuth();
-  const isPrivileged = currentUser && ["OFFICER", "MANAGER"].includes(currentUser.role || "");
+  const isPrivileged = currentUser && ["ADMIN", "OFFICER", "MANAGER"].includes(currentUser.role || "");
 
   const [search, setSearch] = useState("");
   const [filterDivisi, setFilterDivisi] = useState<FilterDivisi>("all");
@@ -582,10 +605,12 @@ export default function ManajemenAmPage() {
         email: data.email.trim() || null,
         role: data.role,
         tipe: data.tipe,
-        divisi: data.role === "AM" ? data.divisi : "DPS",
-        segmen: data.role === "AM" ? (data.segmen || null) : null,
-        witel: data.role === "AM" ? data.witel : "SURAMADU",
-        telegramChatId: data.role === "AM" ? (data.telegramChatId || null) : null,
+        divisi: data.role === "ACCOUNT_MANAGER" ? data.divisi : "DPS",
+        segmen: data.role === "ACCOUNT_MANAGER" ? (data.segmen || null) : null,
+        witel: data.role === "ACCOUNT_MANAGER" ? data.witel : "SURAMADU",
+        telegramChatId: data.role === "ACCOUNT_MANAGER" ? (data.telegramChatId || null) : null,
+        telegramUsername: data.role === "ACCOUNT_MANAGER" ? (data.telegramUsername || null) : null,
+        telegramDisplayName: data.role === "ACCOUNT_MANAGER" ? (data.telegramDisplayName || null) : null,
       }),
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["am-list"] }); setShowAdd(false); setFormError(null); },
@@ -601,10 +626,12 @@ export default function ManajemenAmPage() {
           nama: data.nama.trim().toUpperCase(),
           role: data.role,
           tipe: data.tipe,
-          divisi: data.role === "AM" ? data.divisi : undefined,
-          segmen: data.role === "AM" ? (data.segmen || null) : null,
-          witel: data.role === "AM" ? data.witel : undefined,
-          telegramChatId: data.role === "AM" ? (data.telegramChatId || null) : undefined,
+          divisi: data.role === "ACCOUNT_MANAGER" ? data.divisi : undefined,
+          segmen: data.role === "ACCOUNT_MANAGER" ? (data.segmen || null) : null,
+          witel: data.role === "ACCOUNT_MANAGER" ? data.witel : undefined,
+          telegramChatId: data.role === "ACCOUNT_MANAGER" ? (data.telegramChatId || null) : undefined,
+          telegramUsername: data.role === "ACCOUNT_MANAGER" ? (data.telegramUsername || null) : undefined,
+          telegramDisplayName: data.role === "ACCOUNT_MANAGER" ? (data.telegramDisplayName || null) : undefined,
           email: data.email.trim() || null,
         }),
       }),
@@ -617,7 +644,7 @@ export default function ManajemenAmPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["am-list"] }); setDeleteTarget(null); },
   });
 
-  const amOnly        = users.filter(u => u.role === "AM");
+  const amOnly        = users.filter(u => u.role === "ACCOUNT_MANAGER");
   const activeAmOnly  = amOnly.filter(u => u.aktif);
   const managers      = users.filter(u => u.role === "MANAGER");
   const officers      = users.filter(u => u.role === "OFFICER");
@@ -627,7 +654,7 @@ export default function ManajemenAmPage() {
 
   const filtered = users.filter(u => {
     if (filterRole !== "all" && u.role !== filterRole) return false;
-    if (filterDivisi !== "all" && (u.role !== "AM" || !matchesDivisi(u.divisi, filterDivisi))) return false;
+    if (filterDivisi !== "all" && (u.role !== "ACCOUNT_MANAGER" || u.divisi !== filterDivisi)) return false;
     if (filterWitel !== "all" && u.witel !== filterWitel) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -651,14 +678,15 @@ export default function ManajemenAmPage() {
       role: u.role || "AM", tipe: u.tipe || "LESA",
       divisi: u.divisi, segmen: u.segmen || "", witel: u.witel,
       telegramChatId: u.telegramChatId || "",
+      telegramUsername: u.telegramUsername || "",
+      telegramDisplayName: u.telegramDisplayName || "",
     };
   }
 
   const divisiButtons: { v: FilterDivisi; label: string }[] = [
-    { v: "LESA", label: "LESA" },
-    { v: "GOVT", label: "GOVT" },
     { v: "DPS", label: "DPS" },
     { v: "DSS", label: "DSS" },
+    { v: "DGS", label: "DGS" },
     { v: "all", label: "Semua" },
   ];
 
@@ -683,13 +711,13 @@ export default function ManajemenAmPage() {
           icon={<Users className="w-5 h-5 text-primary" />}
           label="AM Aktif"
           value={<span>{activeAmOnly.length}{newAmCount > 0 && <span className="text-sm font-semibold text-amber-500 ml-1.5">+{newAmCount}</span>}</span>}
-          sub={`${dpsCount} DPS · ${dssCount} DSS · ${dgsCount} GOVT`}
+          sub={`${dpsCount} DPS · ${dssCount} DSS · ${dgsCount} DGS`}
           color="bg-primary/10"
         />
         <StatCard
           icon={<UserCog className="w-5 h-5 text-orange-600" />}
           label="Manager" value={managers.length}
-          sub="LESA & GOVT"
+          sub="Supervisi"
           color="bg-orange-50 dark:bg-orange-950/30"
         />
         <StatCard
@@ -736,9 +764,10 @@ export default function ManajemenAmPage() {
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center" }}
             >
               <option value="all">Semua Role</option>
-              <option value="AM">Account Manager</option>
+              <option value="ACCOUNT_MANAGER">Account Manager</option>
               <option value="MANAGER">Manager</option>
               <option value="OFFICER">Officer</option>
+              <option value="ADMIN">Admin</option>
             </select>
           </div>
 
@@ -764,7 +793,7 @@ export default function ManajemenAmPage() {
           </div>
 
           {/* Divisi filter — button group (only when showing AM) */}
-          {filterRole !== "MANAGER" && filterRole !== "OFFICER" && (
+          {(filterRole === "all" || filterRole === "ACCOUNT_MANAGER") && (
             <div className="flex items-center gap-1">
               {divisiButtons.map(d => (
                 <button

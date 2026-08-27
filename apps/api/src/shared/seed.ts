@@ -1,6 +1,9 @@
-import { db, accountManagersTable, appSettingsTable, salesFunnelTargetTable } from "@workspace/db";
+import { db, accountManagersTable, appSettingsTable, salesFunnelTargetTable, rolesTable } from "@workspace/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { seedAmFunnelTargets } from "../seeds/seed-am-funnel-targets";
+
+// Role IDs (from RBAC migration)
+const ROLE_ID = { ADMIN: 1, MANAGER: 2, OFFICER: 3, ACCOUNT_MANAGER: 4 };
 
 // Default Google Drive folder IDs (TREG3 Suramadu production folders)
 const DEFAULT_GDRIVE_FOLDERS = {
@@ -11,26 +14,27 @@ const DEFAULT_GDRIVE_FOLDERS = {
 };
 
 const DEFAULT_AMS = [
-  { nik: "401431", nama: "NYARI KUSUMANINGRUM",                     slug: "nyari-kusumaningrum",                      tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: true,  discoveredFrom: "seeder" },
-  { nik: "402478", nama: "ANA RUKMANA",                              slug: "ana-rukmana",                              tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "403613", nama: "NADYA ZAHROTUL HAYATI",                    slug: "nadya-zahrotul-hayati",                    tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "404429", nama: "WILDAN ARIEF",                             slug: "wildan-arief",                             tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: true,  discoveredFrom: "seeder" },
-  { nik: "405075", nama: "KATATA VEKANIDYA SEKAR PUSPITASARI",       slug: "katata-vekanidya-sekar-puspitasari",       tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "405690", nama: "CAESAR RIO ANGGINA TORUAN",                slug: "caesar-rio-anggina-toruan",                tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "850046", nama: "MOH RIZAL BIN MOH. FERRY Y.P. DARA",      slug: "moh-rizal-bin-moh-ferry-yp-dara",          tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "870022", nama: "HAVEA PERTIWI",                            slug: "havea-pertiwi",                            tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "896661", nama: "NI MADE NOVI WIRANA",                      slug: "ni-made-novi-wirana",                      tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "910017", nama: "SAFIRINA FEBRYANTI",                       slug: "safirina-febryanti",                       tipe: "LESA", divisi: "DSS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "910024", nama: "VIVIN VIOLITA",                            slug: "vivin-violita",                            tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "920064", nama: "ERVINA HANDAYANI",                         slug: "ervina-handayani",                         tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder" },
-  { nik: "980067", nama: "HANDIKA DAGNA NEVANDA",                    slug: "handika-dagna-nevanda",                    tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: true,  discoveredFrom: "seeder" },
+  { nik: "401431", nama: "NYARI KUSUMANINGRUM",                     slug: "nyari-kusumaningrum",                      tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: true,  discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "402478", nama: "ANA RUKMANA",                              slug: "ana-rukmana",                              tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "403613", nama: "NADYA ZAHROTUL HAYATI",                    slug: "nadya-zahrotul-hayati",                    tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "404429", nama: "WILDAN ARIEF",                             slug: "wildan-arief",                             tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: true,  discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "405075", nama: "KATATA VEKANIDYA SEKAR PUSPITASARI",       slug: "katata-vekanidya-sekar-puspitasari",       tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "405690", nama: "CAESAR RIO ANGGINA TORUAN",                slug: "caesar-rio-anggina-toruan",                tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "850046", nama: "MOH RIZAL BIN MOH. FERRY Y.P. DARA",      slug: "moh-rizal-bin-moh-ferry-yp-dara",          tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "870022", nama: "HAVEA PERTIWI",                            slug: "havea-pertiwi",                            tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "896661", nama: "NI MADE NOVI WIRANA",                      slug: "ni-made-novi-wirana",                      tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "910017", nama: "SAFIRINA FEBRYANTI",                       slug: "safirina-febryanti",                       tipe: "LESA", divisi: "DSS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "910024", nama: "VIVIN VIOLITA",                            slug: "vivin-violita",                            tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "920064", nama: "ERVINA HANDAYANI",                         slug: "ervin-handayani",                          tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: false, discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
+  { nik: "980067", nama: "HANDIKA DAGNA NEVANDA",                    slug: "handika-dagna-nevanda",                    tipe: "LESA", divisi: "DPS", witel: "SURAMADU", kpiActivity: 30, aktif: true, crossWitel: true,  discoveredFrom: "seeder", roleId: ROLE_ID.ACCOUNT_MANAGER },
 ];
 
 const DEFAULT_MANAGER = {
   nik: "850099",
   nama: "RENI WULANSARI",
   slug: "reni-wulansari",
-  role: "MANAGER" as const,
+  role: "MANAGER",
+  roleId: ROLE_ID.MANAGER,
   tipe: "LESA",
   divisi: "DPS",
   witel: "SURAMADU",
@@ -44,7 +48,8 @@ const DEFAULT_OFFICERS = [
     nik: "950160",
     nama: "DIAN ING TYAS DANANJAYA",
     slug: "dian-ing-tyas-dananjaya",
-    role: "OFFICER" as const,
+    role: "OFFICER",
+    roleId: ROLE_ID.OFFICER,
     tipe: "LESA",
     divisi: "DPS",
     witel: "SURAMADU",
@@ -56,7 +61,8 @@ const DEFAULT_OFFICERS = [
     nik: "980134",
     nama: "AYU KIRANA",
     slug: "ayu-kirana",
-    role: "OFFICER" as const,
+    role: "OFFICER",
+    roleId: ROLE_ID.OFFICER,
     tipe: "LESA",
     divisi: "DPS",
     witel: "SURAMADU",
@@ -68,7 +74,8 @@ const DEFAULT_OFFICERS = [
     nik: "940094",
     nama: "KARENDIYA KINASIH",
     slug: "karendiya-kinasih",
-    role: "OFFICER" as const,
+    role: "OFFICER",
+    roleId: ROLE_ID.OFFICER,
     tipe: "LESA",
     divisi: "DPS",
     witel: "SURAMADU",

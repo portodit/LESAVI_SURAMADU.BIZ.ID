@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { matchesDivisi, matchesDivisiPerforma, DIVISI_OPTIONS, DIVISI_OPTIONS_WITH_ALL, divisiFilterLabel } from "@/shared/lib/divisi";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { useQuery } from "@tanstack/react-query";
 import { formatRupiah, formatRupiahFull, formatPercent, getStatusColor, getAchPct, cn } from "@/shared/lib/utils";
 import {
@@ -9,10 +10,12 @@ import {
 } from "recharts";
 import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
-import { ChevronDown, ChevronLeft, ChevronRight, Camera, X, BarChart2, Filter, Activity, Check, Maximize2, Minimize2, Expand, Search, Columns2 } from "lucide-react";
-
+import { getPresentationSession, clearPresentationSession } from "@/shared/hooks/use-presentation-auth";
+import { ChevronDown, ChevronLeft, ChevronRight, Camera, X, BarChart2, Filter, Activity, Check, Maximize2, Minimize2, Expand, Search, Columns2, LogOut, TrendingUp } from "lucide-react";
+import PrognosaSlide, { SCENARIOS, ScenarioKey, prognosaDataDefault, TIPE_RANK_OPTIONS, TIPE_REVENUE_OPTIONS, TipeRankKey, TipeRevenueKey } from "./PrognosaSlide";
 const SLIDES = [
   { label: "Visualisasi Performa", icon: BarChart2 },
+  { label: "Prognosa AM", icon: TrendingUp },
   { label: "AM Sales Funnel", icon: Filter },
   { label: "Sales Activity", icon: Activity },
 ];
@@ -2729,17 +2732,159 @@ export default function EmbedPerforma() {
   const [filterNamaAms, setFilterNamaAms] = useState<Set<string>>(new Set());
   const [filterTipeRank, setFilterTipeRank] = useState("Ach CM");
   const [filterTipeRevenue, setFilterTipeRevenue] = useState("Reguler");
+  const [decimalPrecision, setDecimalPrecision] = useState<1 | 2>(1);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [custViewMode, setCustViewMode] = useState<"perBulan" | "agregasi">("agregasi");
   const [loading, setLoading] = useState(true);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [scenario, setScenario] = useState<ScenarioKey>("all");
+  const [selectedPeriodes, setSelectedPeriodes] = useState<Set<string>>(new Set());
+  const [tipeRank, setTipeRank] = useState<TipeRankKey>("Ach CM");
+  const [tipeRevenue, setTipeRevenue] = useState<TipeRevenueKey>("Reguler");
+  const [selectedDivisi, setSelectedDivisi] = useState<Set<string>>(new Set());
+  const [selectedAmNames, setSelectedAmNames] = useState<Set<string>>(new Set());
+
+  // Compute available Divisi and AM name options from prognosa data
+  // Compute available Divisi and AM name options from prognosa data
+  const progDivisiOptions = useMemo(() => {
+    const d = new Set<string>();
+    for (const r of prognosaDataDefault) {
+      const div = r.DIVISI_CC || r.DIVISI_AM;
+      if (div) d.add(div);
+    }
+    return [...d].sort();
+  }, []);
+
+  const progAmNameOptions = useMemo(() => {
+    const d = new Set<string>();
+    for (const r of prognosaDataDefault) {
+      if (r.WITEL_AM === "SURAMADU") d.add(r.NAMA_AM);
+    }
+    return [...d].sort();
+  }, []);
+
+  const allPeriodes = useMemo(() => {
+    const p = new Set<string>();
+    for (const r of prognosaDataDefault) { p.add(String(r.PERIODE)); }
+    return [...p].sort();
+  }, []);
+
+  const prognosaFilterBar = (
+    <div className="hidden sm:flex items-end gap-2 flex-nowrap overflow-x-auto">
+      {/* Skenario */}
+      <div className="flex flex-col gap-1 shrink-0" style={{ width: 130 }}>
+        <label className="text-xs font-display font-bold text-foreground uppercase tracking-wide">Skenario</label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="h-9 px-3 bg-secondary/50 border border-border rounded-lg text-sm flex items-center gap-1.5 whitespace-nowrap focus:ring-2 focus:ring-primary/20 focus:border-primary">
+              <span className="flex-1 text-left truncate font-medium text-foreground">{SCENARIOS.find(s => s.id === scenario)?.label ?? "Semua"}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 shrink-0 text-muted-foreground"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="p-0" align="start" sideOffset={4} style={{ width: 140 }}>
+            <div className="bg-popover border border-border rounded-xl shadow-lg p-1">
+              {SCENARIOS.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setScenario(s.id)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-colors",
+                    scenario === s.id
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground hover:bg-muted"
+                  )}
+                >
+                  {s.shortLabel}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+      {/* Snapshot */}
+      <div className="flex flex-col gap-1 shrink-0">
+        <label className="text-xs font-display font-bold text-foreground uppercase tracking-wide">📷 Snapshot</label>
+        <button className="h-9 px-3 bg-secondary/50 border border-border rounded-lg text-sm flex items-center gap-1.5 w-full whitespace-nowrap disabled:opacity-40 transition-colors focus:ring-2 focus:ring-primary/20 focus:border-primary">
+          <span className="flex-1 text-left truncate font-medium text-foreground">26 Agt 2026</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 shrink-0 text-muted-foreground"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+      </div>
+      {/* Periode */}
+      <div className="flex flex-col gap-1 shrink-0">
+        <label className="text-xs font-display font-bold text-foreground uppercase tracking-wide">Periode</label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="h-9 px-3 bg-secondary/50 border border-border rounded-lg text-sm flex items-center gap-1.5 w-full whitespace-nowrap focus:ring-2 focus:ring-primary/20 focus:border-primary">
+              <span className="flex-1 text-left truncate font-medium text-foreground">{selectedPeriodes.size === 0 ? "Semua" : `${selectedPeriodes.size} Periode dipilih`}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 shrink-0 text-muted-foreground"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start" sideOffset={4}>
+            <div className="bg-popover border border-border rounded-xl shadow-lg min-w-[180px] max-h-72 overflow-y-auto p-1.5">
+              <div className="flex items-center justify-between px-2 py-1.5 border-b border-border mb-1">
+                <span className="font-semibold text-sm text-foreground uppercase tracking-wider">Periode</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setSelectedPeriodes(new Set())}
+                    className="text-xs px-2 py-1 rounded bg-primary/10 hover:bg-primary/20 text-primary font-semibold transition-colors"
+                  >
+                    Semua
+                  </button>
+                  <button
+                    onClick={() => setSelectedPeriodes(new Set(allPeriodes))}
+                    className="text-xs px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground font-semibold transition-colors"
+                  >
+                    Kosongkan
+                  </button>
+                </div>
+              </div>
+              {allPeriodes.map(p => {
+                const monthIdx = parseInt(p.slice(4)) - 1;
+                const label = `${["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"][monthIdx]} ${p.slice(0, 4)}`;
+                const isSelected = selectedPeriodes.size === 0 || selectedPeriodes.has(p);
+                return (
+                  <label key={p} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-secondary cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {
+                        setSelectedPeriodes(prev => {
+                          const next = new Set(prev.size === 0 ? allPeriodes : prev);
+                          if (prev.size === 0) {
+                            return new Set([p]);
+                          }
+                          if (next.has(p)) {
+                            next.delete(p);
+                          } else {
+                            next.add(p);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="rounded"
+                    />
+                    <span>{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </div>
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [funnelSubtitle, setFunnelSubtitle] = useState("HO / FULL HO");
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const perfSearchRef = useRef<HTMLInputElement>(null);
   const perfTableRef = useRef<HTMLDivElement>(null);
+
+  const handleLogout = useCallback(() => {
+    clearPresentationSession();
+    window.location.href = "/presentation/login";
+  }, []);
 
   // Ukur tinggi toolbar tabel Performa AM secara dinamis
   const perfToolbarRef = useRef<HTMLDivElement>(null);
@@ -2800,6 +2945,7 @@ export default function EmbedPerforma() {
       if (e.key === "1") { e.preventDefault(); setCurrentSlide(0); return; }
       if (e.key === "2") { e.preventDefault(); setCurrentSlide(1); return; }
       if (e.key === "3") { e.preventDefault(); setCurrentSlide(2); return; }
+      if (e.key === "4") { e.preventDefault(); setCurrentSlide(3); return; }
 
       // Fullscreen
       if (e.key === "f" || e.key === "F") { e.preventDefault(); toggleFullscreen(); return; }
@@ -2829,11 +2975,38 @@ export default function EmbedPerforma() {
   }, [currentSlide, toggleFullscreen]);
 
   useEffect(() => {
+    setLoading(true);
     fetch(`${API_BASE}/api/public/import-history`)
       .then(r => r.json())
       .then((data: any[]) => {
         setImports(data);
-        if (data.length > 0) setSnapshotId(data[0].id);
+        const snapId = data.length > 0 ? data[0].id : null;
+        setSnapshotId(snapId);
+        // Fetch performance data in the same effect to avoid React 18 timing issues
+        if (!snapId) {
+          setAllPerfs([]);
+          setLoading(false);
+          return;
+        }
+        return fetch(`${API_BASE}/api/public/performance?importId=${snapId}`).then(r => r.json());
+      })
+      .then((data: any[] | undefined) => {
+        if (!data) return;
+        setAllPerfs(data);
+        window.__perfDebug = { rows: data.length, dps: data.filter((p: any) => p.divisiCc === 'DPS').length, des: data.filter((p: any) => p.divisi === 'DES').length };
+        console.log("[DEBUG perf fetch]", data.length, "rows", data.filter((p: any) => p.divisiCc === 'DPS').length, "DPS via divisiCc", data.filter((p: any) => p.divisi === 'DES').length, "DES via divisi");
+        const ps = [...new Set(data.map((p: any) => `${p.tahun}-${String(p.bulan).padStart(2, "0")}`))] as string[];
+        ps.sort();
+        const psWithData = ps.filter(period => {
+          const [y, m] = period.split("-");
+          return data.some((p: any) =>
+            String(p.tahun) === y && String(p.bulan).padStart(2, "0") === m &&
+            (p.realRevenue ?? 0) > 0
+          );
+        });
+        setFilterPeriodes(new Set(psWithData.length > 0 ? psWithData : ps));
+        setFilterDivisi("LESA");
+        setFilterNamaAms(new Set());
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -2846,9 +3019,10 @@ export default function EmbedPerforma() {
       .then(r => r.json())
       .then((data: any[]) => {
         setAllPerfs(data);
+        window.__perfDebug = { rows: data.length, dps: data.filter((p: any) => p.divisiCc === 'DPS').length, des: data.filter((p: any) => p.divisi === 'DES').length };
+        console.log("[DEBUG perf fetch]", data.length, "rows", data.filter((p: any) => p.divisiCc === 'DPS').length, "DPS via divisiCc", data.filter((p: any) => p.divisi === 'DES').length, "DES via divisi");
         const ps = [...new Set(data.map((p: any) => `${p.tahun}-${String(p.bulan).padStart(2, "0")}`))] as string[];
         ps.sort();
-        // Auto-select only periods where at least one AM has real_revenue > 0
         const psWithData = ps.filter(period => {
           const [y, m] = period.split("-");
           return data.some((p: any) =>
@@ -2908,7 +3082,8 @@ export default function EmbedPerforma() {
 
   // amTableData
   const amTableData = useMemo(() => {
-    if (!allPerfs.length || !cmPeriode) return [];
+    if (!allPerfs.length || !cmPeriode) { console.log("[DEBUG amTableData] early return: allPerfs.length=", allPerfs.length, "cmPeriode=", cmPeriode); return []; }
+    console.log("[DEBUG amTableData] filterDivisi=", filterDivisi, "cmPeriode=", cmPeriode, "cmMonth=", cmMonth, "total rows=", allPerfs.length);
     let rows = allPerfs as any[];
     if (filterPeriodes.size > 0) {
       rows = rows.filter((p: any) => filterPeriodes.has(`${p.tahun}-${String(p.bulan).padStart(2, "0")}`));
@@ -2927,7 +3102,7 @@ export default function EmbedPerforma() {
       // When divisi filter is active, restrict CM rows to matching divisi only
       const activeCmRows = (filterDivisi === "LESA")
         ? cmRows
-        : cmRows.filter((cr: any) => matchesDivisiPerforma(cr.divisi, filterDivisi));
+        : cmRows.filter((cr: any) => matchesDivisiPerforma(cr.divisi_cc, filterDivisi));
       // Combine CM target/real — only from activeCmRows (respects divisi filter)
       let cmTarget = 0, cmReal = 0;
       for (const cr of (activeCmRows.length > 0 ? activeCmRows : cmRows)) {
@@ -2937,7 +3112,7 @@ export default function EmbedPerforma() {
       // For YTD, filter rows by divisi if active
       const activeFilteredRows = (filterDivisi === "LESA")
         ? entry.filteredRows
-        : entry.filteredRows.filter((r: any) => matchesDivisiPerforma(r.divisi, filterDivisi));
+        : entry.filteredRows.filter((r: any) => matchesDivisiPerforma(r.divisi_cc, filterDivisi));
       let ytdTarget = 0, ytdReal = 0;
       for (const r of activeFilteredRows) {
         const s = getTypedRevenue(r, filterTipeRevenue);
@@ -2951,7 +3126,7 @@ export default function EmbedPerforma() {
         const bS = getTypedRevenue(best, filterTipeRevenue);
         return s.target > bS.target ? r : best;
       }, (activeCmRows.length > 0 ? activeCmRows : cmRows)[0]);
-      const divisiAll = [...new Set(cmRows.map((r: any) => r.divisi as string))];
+      const divisiAll = [...new Set(cmRows.map((r: any) => r.divisi_cc as string))];
       // Build customers — only from rows matching divisi filter
       // For flat format (komponen_detail = single object without Reguler/Sustain/etc), inject revenue from parent AM row
       const custRaw = activeFilteredRows.flatMap((cr: any) => {
@@ -2968,7 +3143,7 @@ export default function EmbedPerforma() {
           if (isFlat) {
             return {
               ...c,
-              _divisi: cr.divisi,
+              _divisi: cr.divisi_cc,
               _periode: periodeStr,
               Reguler: { target: toNum(cr.targetReguler), real: toNum(cr.realReguler) },
               Sustain: { target: toNum(cr.targetSustain), real: toNum(cr.realSustain) },
@@ -2976,7 +3151,7 @@ export default function EmbedPerforma() {
               NGTMA: { target: toNum(cr.targetNgtma), real: toNum(cr.realNgtma) },
             };
           }
-          return { ...c, _divisi: cr.divisi, _periode: periodeStr };
+          return { ...c, _divisi: cr.divisi_cc, _periode: periodeStr };
         });
       });
       const custMap = new Map<string, { c: any; periods: Set<string> }>();
@@ -3019,6 +3194,7 @@ export default function EmbedPerforma() {
     if (filterDivisi !== "LESA") result = result.filter(r =>
       (r.divisiAll as string[]).some((d: string) => matchesDivisiPerforma(d, filterDivisi))
     );
+    console.log("[DEBUG amTableData final] filterDivisi=", filterDivisi, "result.length=", result.length, "LESA filter check:", result.filter(r => { const matched = (r.divisiAll as string[]).some((d: string) => matchesDivisiPerforma(d, "LESA")); return matched; }).length);
     if (filterNamaAms.size > 0) result = result.filter(r => filterNamaAms.has(r.namaAm));
     result.sort((a, b) => {
       if (filterTipeRank === "Ach YTD") return b.ytdAch - a.ytdAch;
@@ -3034,7 +3210,7 @@ export default function EmbedPerforma() {
 
   const amNames = useMemo(() => {
     if (!allPerfs.length || !cmMonth) return [];
-    const rows = allPerfs.filter((p: any) => p.bulan === cmMonth && matchesDivisiPerforma(p.divisi, filterDivisi));
+    const rows = allPerfs.filter((p: any) => p.bulan === cmMonth && matchesDivisiPerforma(p.divisi_cc, filterDivisi));
     return [...new Set(rows.map((p: any) => p.namaAm).filter(Boolean))].sort() as string[];
   }, [allPerfs, cmMonth, filterDivisi]);
 
@@ -3065,7 +3241,7 @@ export default function EmbedPerforma() {
       }
       const rows = allPerfs.filter((p: any) =>
         String(p.tahun) === cmYear && p.bulan === mNum &&
-        matchesDivisiPerforma(p.divisi, filterDivisi)
+        matchesDivisiPerforma(p.divisi_cc, filterDivisi)
       );
       const target = rows.reduce((s, p) => s + (Number(p.targetRevenue) || 0), 0);
       const real = rows.reduce((s, p) => s + (Number(p.realRevenue) || 0), 0);
@@ -3112,6 +3288,7 @@ export default function EmbedPerforma() {
   }, []);
 
   const hasData = amTableData.length > 0;
+  if (!hasData) { console.log("[DEBUG hasData=false] amTableData.length=", amTableData.length, "allPerfs.length=", allPerfs.length, "cmPeriode=", cmPeriode, "cmMonth=", cmMonth, "filterDivisi=", filterDivisi, "filterPeriodes.size=", filterPeriodes.size); }
 
   return (
     <div className="h-screen bg-background font-sans text-foreground text-sm flex flex-col overflow-hidden">
@@ -3227,9 +3404,9 @@ export default function EmbedPerforma() {
             <div className="leading-tight min-w-0">
               <p className="text-[9px] sm:text-[10px] font-black text-muted-foreground uppercase tracking-widest leading-none">LESA VI WITEL SURAMADU</p>
               <p className="text-xs sm:text-sm font-bold text-foreground truncate max-w-[160px] sm:max-w-none">
-                {currentSlide === 1
+                {currentSlide === 1 ? "Prognosa AM 2026" : currentSlide === 2
                   ? <><span className="sm:hidden">AM Sales Funnel</span><span className="hidden sm:inline">SALES FUNNELING LOP MYTENS {funnelSubtitle}</span></>
-                  : currentSlide === 2
+                  : currentSlide === 3
                   ? <><span className="sm:hidden">Sales Activity</span><span className="hidden sm:inline">AM SALES ACTIVITY REPORT</span></>
                   : "AM Performance Report"}
               </p>
@@ -3274,17 +3451,13 @@ export default function EmbedPerforma() {
               </div>
             </>
           )}
-          {currentSlide === 1 && (
-            <>
-              <div className="hidden sm:block w-px h-9 bg-border/60 shrink-0 mx-0.5" />
-              <div id="funnel-navbar-portal" className="hidden sm:flex items-end gap-2 flex-1 min-w-0 overflow-x-auto" />
-            </>
-          )}
+          <div className="hidden sm:block w-px h-9 bg-border/60 shrink-0 mx-0.5" />
+          {currentSlide === 1 && prognosaFilterBar}
           {currentSlide === 2 && (
-            <>
-              <div className="hidden sm:block w-px h-9 bg-border/60 shrink-0 mx-0.5" />
-              <div id="activity-navbar-portal" className="hidden sm:flex items-end gap-2 flex-1 min-w-0 overflow-x-auto" />
-            </>
+            <div className="hidden sm:flex items-end gap-2 flex-1 min-w-0 overflow-x-auto" id="funnel-navbar-portal" />
+          )}
+          {currentSlide === 3 && (
+            <div className="hidden sm:flex items-end gap-2 flex-1 min-w-0 overflow-x-auto" id="activity-navbar-portal" />
           )}
           {/* Slide arrows + fullscreen — always pushed to the right */}
           <div className="ml-auto flex items-center gap-1 shrink-0">
@@ -3310,6 +3483,10 @@ export default function EmbedPerforma() {
             <button onClick={() => setShortcutHelpOpen(p => !p)} title="Keyboard shortcuts (?)"
               className="p-1 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground hidden sm:flex items-center justify-center font-bold text-xs w-6 h-6 border border-border/60">
               ?
+            </button>
+            <button onClick={handleLogout} title="Logout"
+              className="p-1 rounded-lg hover:bg-red-50 transition-colors text-red-500 hover:text-red-600">
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -3350,15 +3527,22 @@ export default function EmbedPerforma() {
             />
           </div>
         )}
-        {/* Mobile funnel filter row — portal target for FunnelSlide */}
+        {/* Mobile prognosa filter row */}
         {currentSlide === 1 && (
+          <div
+            id="prognosa-navbar-portal-mobile"
+            className="sm:hidden flex items-end gap-2 overflow-x-auto px-3 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          />
+        )}
+        {/* Mobile funnel filter row — portal target for FunnelSlide */}
+        {currentSlide === 2 && (
           <div
             id="funnel-navbar-portal-mobile"
             className="sm:hidden flex items-end gap-2 overflow-x-auto px-3 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           />
         )}
         {/* Mobile activity filter row — portal target for ActivitySlide */}
-        {currentSlide === 2 && (
+        {currentSlide === 3 && (
           <div
             id="activity-navbar-portal-mobile"
             className="sm:hidden flex items-end gap-2 overflow-x-auto px-3 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
@@ -3368,11 +3552,28 @@ export default function EmbedPerforma() {
       {/* ─── Main Scrollable Content ─────────────────────── */}
       <div className="flex-1 overflow-y-auto">
 
+      {/* ─── Slide: Prognosa AM ────────────────────────── */}
+      <PrognosaSlide
+        visible={currentSlide === 1}
+        scenario={scenario}
+        setScenario={setScenario}
+        selectedPeriodes={selectedPeriodes}
+        setSelectedPeriodes={setSelectedPeriodes}
+        selectedDivisi={selectedDivisi}
+        setSelectedDivisi={setSelectedDivisi}
+        selectedAmNames={selectedAmNames}
+        setSelectedAmNames={setSelectedAmNames}
+        tipeRank={tipeRank}
+        setTipeRank={setTipeRank}
+        tipeRevenue={tipeRevenue}
+        setTipeRevenue={setTipeRevenue}
+      />
+
       {/* ─── Slide: Sales Funnel ──────────────────────────── */}
-      {currentSlide === 1 && <FunnelSlide onTitleChange={setFunnelSubtitle} />}
+      {currentSlide === 2 && <FunnelSlide onTitleChange={setFunnelSubtitle} />}
 
       {/* ─── Slide: Sales Activity ────────────────────────── */}
-      {currentSlide === 2 && <ActivitySlide />}
+      {currentSlide === 3 && <ActivitySlide />}
 
       {/* ─── Slide: Visualisasi Performa ─────────────────── */}
       {currentSlide === 0 && (
@@ -3429,14 +3630,14 @@ export default function EmbedPerforma() {
               <TrophyCard colorScheme="gold"
                 title="TOP AM BY CURRENT MONTH"
                 subtitle={topCm ? `Divisi ${topCm.divisi} · CM ${cmPeriode ? periodeLabel(cmPeriode) : "—"}` : ""}
-                am={topCm} value={topCm && typeof topCm.cmAch === "number" && !isNaN(topCm.cmAch) ? `${(topCm.cmAch * 100).toFixed(1).replace(".", ",")}%` : "–"}
+                am={topCm} value={topCm && typeof topCm.cmAch === "number" && !isNaN(topCm.cmAch) ? `${(topCm.cmAch * 100).toFixed(decimalPrecision).replace(".", ",")}%` : "–"}
                 realValue={topCm ? fmtRupiah(topCm.cmReal) : undefined}
                 targetValue={topCm ? fmtRupiah(topCm.cmTarget) : undefined}
               />
               <TrophyCard colorScheme="blue"
                 title="TOP AM BY YEAR TO DATE"
                 subtitle={topYtd ? `Divisi ${topYtd.divisi} · YTD ${ytdPeriodeLabel}` : ""}
-                am={topYtd} value={topYtd && typeof topYtd.ytdAch === "number" && !isNaN(topYtd.ytdAch) ? `${(topYtd.ytdAch * 100).toFixed(1).replace(".", ",")}%` : "–"}
+                am={topYtd} value={topYtd && typeof topYtd.ytdAch === "number" && !isNaN(topYtd.ytdAch) ? `${(topYtd.ytdAch * 100).toFixed(decimalPrecision).replace(".", ",")}%` : "–"}
                 realValue={topYtd ? fmtRupiah(topYtd.ytdReal) : undefined}
                 targetValue={topYtd ? fmtRupiah(topYtd.ytdTarget) : undefined}
               />
@@ -3509,6 +3710,26 @@ export default function EmbedPerforma() {
                       : <><Expand className="w-3 h-3"/> Expand Semua</>
                     }
                   </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Decimal:</label>
+                    <button
+                      onClick={() => setDecimalPrecision(d => d === 1 ? 2 : 1)}
+                      className={cn(
+                        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                        decimalPrecision === 2 ? "bg-primary" : "bg-muted"
+                      )}
+                      title={decimalPrecision === 1 ? "1 desimal" : "2 desimal"}
+                    >
+                      <span className="sr-only">Toggle decimal precision</span>
+                      <span
+                        className={cn(
+                          "inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+                          decimalPrecision === 2 ? "translate-x-[18px]" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                    <span className="text-[10px] font-bold text-foreground tabular-nums">{decimalPrecision === 1 ? "112.3%" : "112.27%"}</span>
+                  </div>
                 </div>
               </div>
               <div className="p-3">
@@ -3557,7 +3778,7 @@ export default function EmbedPerforma() {
                             <div className="group relative flex flex-col w-fit gap-0.5">
                               <span className="text-sm font-extrabold">{row.namaAm}</span>
                               <span className="flex items-center gap-1 flex-wrap">
-                                {((row.divisiAll as string[]) ?? [row.divisi])
+                                {((row.divisiAll as string[]) ?? [row.divisi_cc])
                                   .filter((d: string) => filterDivisi === "LESA" || matchesDivisiPerforma(d, filterDivisi))
                                   .map((d: string) => (
                                   <span key={d} className={cn("text-[10px] px-1.5 py-0.5 rounded font-bold shrink-0",
@@ -3571,10 +3792,10 @@ export default function EmbedPerforma() {
                           <td className="px-4 py-2.5 text-right font-semibold text-foreground tabular-nums text-xs whitespace-nowrap" style={{backgroundColor:bgCard}}>{fmtRupiah(row.ytdTarget)}</td>
                           <td className="px-4 py-2.5 text-right font-black text-foreground tabular-nums text-xs whitespace-nowrap" style={{backgroundColor:bgCard}}>{fmtRupiah(row.ytdReal)}</td>
                           {showCmCol && <td className={cn("px-3 py-2.5 text-right font-black tabular-nums text-xs", row.cmAch >= 1 ? "text-green-600" : row.cmAch >= 0.8 ? "text-orange-500" : "text-red-600")} style={{backgroundColor:bgCard}}>
-                            {typeof row.cmAch === "number" && !isNaN(row.cmAch) ? (row.cmAch * 100).toFixed(1).replace(".", ",") : "0"}%
+                            {typeof row.cmAch === "number" && !isNaN(row.cmAch) ? (row.cmAch * 100).toFixed(decimalPrecision).replace(".", ",") : decimalPrecision === 1 ? "0,0" : "0,00"}%
                           </td>}
                           {showYtdCol && <td className={cn("px-3 py-2.5 text-right font-black tabular-nums text-xs", row.ytdAch >= 1 ? "text-green-600" : row.ytdAch >= 0.8 ? "text-blue-600" : "text-red-600")} style={{backgroundColor:bgCard}}>
-                            {typeof row.ytdAch === "number" && !isNaN(row.ytdAch) ? (row.ytdAch * 100).toFixed(1).replace(".", ",") : "0"}%
+                            {typeof row.ytdAch === "number" && !isNaN(row.ytdAch) ? (row.ytdAch * 100).toFixed(decimalPrecision).replace(".", ",") : decimalPrecision === 1 ? "0,0" : "0,00"}%
                           </td>}
                           <td className="px-3 py-2.5 text-center font-black text-foreground text-xs" style={{backgroundColor:bgCard}}>{row.displayRank}</td>
                         </>
@@ -3676,7 +3897,7 @@ export default function EmbedPerforma() {
                                         <div className="w-8 h-1.5 bg-secondary rounded-full overflow-hidden shrink-0">
                                           <div className="h-full bg-rose-500 rounded-full" style={{width:`${Math.min(prop,100)}%`}} />
                                         </div>
-                                        <span className="text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{typeof prop === "number" && !isNaN(prop) ? prop.toFixed(1) : "0"}%</span>
+                                        <span className="text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{typeof prop === "number" && !isNaN(prop) ? prop.toFixed(decimalPrecision) : decimalPrecision === 1 ? "0.0" : "0.00"}%</span>
                                       </div>
                                     </td>
                                     {showPeriodeCol && (
@@ -3698,7 +3919,7 @@ export default function EmbedPerforma() {
                                     <td className="px-4 py-2 text-right text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(Math.abs(cTarget))}</td>
                                     <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(cReal)}</td>
                                     <td className={cn("px-3 py-2 text-right text-xs font-black tabular-nums", cAch >= 100 ? "text-green-600" : cAch >= 80 ? "text-orange-500" : "text-red-500")}>
-                                      {typeof cAch === "number" && !isNaN(cAch) ? cAch.toFixed(1) : "0"}%
+                                      {typeof cAch === "number" && !isNaN(cAch) ? cAch.toFixed(decimalPrecision) : decimalPrecision === 1 ? "0.0" : "0.00"}%
                                     </td>
                                   </tr>
                                 );
@@ -3733,7 +3954,7 @@ export default function EmbedPerforma() {
                                     <td className="px-4 py-2 text-right text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(footTarget)}</td>
                                     <td className="px-4 py-2 text-right text-xs font-black text-foreground tabular-nums whitespace-nowrap">{fmtRupiah(footReal)}</td>
                                     <td className={cn("px-3 py-2 text-right text-xs font-black tabular-nums", footAch >= 1 ? "text-green-600" : footAch >= 0.8 ? "text-orange-500" : "text-red-600")}>
-                                      {typeof footAch === "number" && !isNaN(footAch) ? (footAch * 100).toFixed(1).replace(".", ",") : "0"}%
+                                      {typeof footAch === "number" && !isNaN(footAch) ? (footAch * 100).toFixed(decimalPrecision).replace(".", ",") : decimalPrecision === 1 ? "0,0" : "0,00"}%
                                     </td>
                                   </tr>
                                 );
@@ -3761,11 +3982,11 @@ export default function EmbedPerforma() {
                           <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground font-semibold text-sm whitespace-nowrap">{fmtRupiah(totals.ytdTarget)}</td>
                           <td className="px-4 py-2.5 text-right tabular-nums text-foreground font-bold text-sm whitespace-nowrap">{fmtRupiah(totals.ytdReal)}</td>
                           {showCmCol && <td className={cn("px-3 py-2.5 text-right tabular-nums", totals.cmAch >= 100 ? "text-green-600" : totals.cmAch >= 80 ? "text-orange-500" : "text-red-600")}>
-                            <div className="font-black text-sm">{typeof totals.cmAch === "number" && !isNaN(totals.cmAch) ? totals.cmAch.toFixed(1).replace(".", ",") : "0"}%</div>
+                            <div className="font-black text-sm">{typeof totals.cmAch === "number" && !isNaN(totals.cmAch) ? totals.cmAch.toFixed(decimalPrecision).replace(".", ",") : decimalPrecision === 1 ? "0,0" : "0,00"}%</div>
                             <div className="text-[10px] font-semibold mt-0.5">{totals.cmAch >= 100 ? "Melebihi Target" : totals.cmAch >= 80 ? "Mendekati" : "Di Bawah Target"}</div>
                           </td>}
                           {showYtdCol && <td className={cn("px-3 py-2.5 text-right tabular-nums", totals.ytdAch >= 100 ? "text-green-600" : totals.ytdAch >= 80 ? "text-blue-600" : "text-red-500")}>
-                            <div className="font-black text-sm">{typeof totals.ytdAch === "number" && !isNaN(totals.ytdAch) ? totals.ytdAch.toFixed(1).replace(".", ",") : "0"}%</div>
+                            <div className="font-black text-sm">{typeof totals.ytdAch === "number" && !isNaN(totals.ytdAch) ? totals.ytdAch.toFixed(decimalPrecision).replace(".", ",") : decimalPrecision === 1 ? "0,0" : "0,00"}%</div>
                             <div className="text-[10px] font-semibold mt-0.5">{totals.ytdAch >= 100 ? "Melebihi Target" : totals.ytdAch >= 80 ? "Mendekati" : "Di Bawah Target"}</div>
                           </td>}
                           <td />

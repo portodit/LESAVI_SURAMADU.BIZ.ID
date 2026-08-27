@@ -36,42 +36,77 @@ export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[
     : workbook.SheetNames[0];
   const worksheet = workbook.Sheets[resolvedSheet];
 
-  // Smart parsing: detect title row (row 0 has only 1 non-null cell, rest null)
   const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, raw: true }) as any[][];
   if (rawRows.length < 2) return [];
 
-  const row0 = rawRows[0] as any[];
-  const row0NonNull = row0.filter(v => v !== null && v !== "").length;
+  // Smart header detection: scan rows to find one with known column names AND ≥8 non-null cells.
+  // This handles Power BI pivot exports with filter rows (2 non-null) before the real header (10+ non-null).
+  const headerKeywords = ["NIK", "PERIODE", "NAMA_AM", "STANDARD_NAME", "LOPID", "NIPNAS", "WITEL", "DIVISI", "PELANGGAN", "PROJECT_ID"];
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
+    const row = rawRows[i];
+    if (!row) continue;
+    const nonNull = row.filter(v => v !== null && v !== "");
+    // Header row typically has 8+ non-null cells; filter rows have 2.
+    if (nonNull.length >= 8) {
+      const rowUpper = row.map(v => v != null ? String(v).trim().toUpperCase() : "");
+      const hasKeyword = headerKeywords.some(k => rowUpper.includes(k));
+      if (hasKeyword) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+  }
 
-  // If row 0 looks like a title (only first cell filled), skip it and use row 1 as header
-  if (row0NonNull === 1 && rawRows.length > 2) {
-    const headers = rawRows[1] as string[];
-    const dataRows = rawRows.slice(2);
-    return dataRows
-      .filter(row => row.some(v => v !== null && v !== ""))
+  let rows: ParsedRow[];
+  if (headerRowIdx >= 0) {
+    // Found header in a later row — rows above are filter/metadata rows, skip them
+    const headers = rawRows[headerRowIdx] as string[];
+    const dataRows = rawRows.slice(headerRowIdx + 1);
+    rows = dataRows
+      .filter(row => row && row.some(v => v !== null && v !== ""))
       .map(row => {
         const obj: ParsedRow = {};
         headers.forEach((h, i) => {
           if (h) {
-            // Normalize header: trim, remove extra spaces, uppercase
-            // Cell values (row[i]) are preserved as-is including Date objects
             const normalized = String(h).trim().replace(/\s+/g, " ").toUpperCase();
             obj[normalized] = row[i] ?? null;
           }
         });
         return obj;
       });
-  }
-
-  // Normal parsing (first row is header) — raw:true preserves Date objects
-  const rows = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: true }) as ParsedRow[];
-  return rows.map(row => {
-    const normalized: ParsedRow = {};
-    for (const [k, v] of Object.entries(row)) {
-      if (k) normalized[String(k).trim().replace(/\s+/g, " ").toUpperCase()] = v;
+  } else {
+    // Fallback: row 0 looks like a title (only 1 non-null cell), use row 1 as header
+    const row0 = rawRows[0] as any[];
+    const row0NonNull = row0.filter(v => v !== null && v !== "").length;
+    if (row0NonNull === 1 && rawRows.length > 2) {
+      const headers = rawRows[1] as string[];
+      const dataRows = rawRows.slice(2);
+      rows = dataRows
+        .filter(row => row.some(v => v !== null && v !== ""))
+        .map(row => {
+          const obj: ParsedRow = {};
+          headers.forEach((h, i) => {
+            if (h) {
+              const normalized = String(h).trim().replace(/\s+/g, " ").toUpperCase();
+              obj[normalized] = row[i] ?? null;
+            }
+          });
+          return obj;
+        });
+    } else {
+      // Normal parsing (first row is header)
+      rows = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: true }) as ParsedRow[];
+      rows = rows.map(row => {
+        const normalized: ParsedRow = {};
+        for (const [k, v] of Object.entries(row)) {
+          if (k) normalized[String(k).trim().replace(/\s+/g, " ").toUpperCase()] = v;
+        }
+        return normalized;
+      });
     }
-    return normalized;
-  });
+  }
+  return rows;
 }
 
 /**
@@ -81,20 +116,39 @@ export function parseExcelBuffer(buffer: Buffer, sheetName?: string): ParsedRow[
  */
 export function parseRaw2DArray(rawRows: any[][]): ParsedRow[] {
   if (rawRows.length < 2) return [];
-  const row0 = rawRows[0] as any[];
-  const row0NonNull = row0.filter(v => v !== null && v !== "" && v !== undefined).length;
+
+  // Smart header detection: scan rows to find the one with known column names
+  const headerKeywords = ["NIK", "PERIODE", "NAMA_AM", "STANDARD_NAME", "LOPID", "NIPNAS", "WITEL", "DIVISI", "PELANGGAN", "PROJECT_ID"];
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
+    const row = rawRows[i];
+    if (!row) continue;
+    const nonNull = row.filter(v => v !== null && v !== "" && v !== undefined);
+    if (nonNull.length >= 2) {
+      const rowUpper = row.map(v => v != null ? String(v).trim().toUpperCase() : "");
+      const hasKeyword = headerKeywords.some(k => rowUpper.includes(k));
+      if (hasKeyword) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+  }
 
   let headers: string[];
   let dataRows: any[][];
-
-  if (row0NonNull === 1 && rawRows.length > 2) {
-    // First row is a title row — use row 1 as header
-    headers = rawRows[1] as string[];
-    dataRows = rawRows.slice(2);
+  if (headerRowIdx >= 0) {
+    headers = rawRows[headerRowIdx] as string[];
+    dataRows = rawRows.slice(headerRowIdx + 1);
   } else {
-    // First row is the header
-    headers = rawRows[0] as string[];
-    dataRows = rawRows.slice(1);
+    const row0 = rawRows[0] as any[];
+    const row0NonNull = row0.filter(v => v !== null && v !== "" && v !== undefined).length;
+    if (row0NonNull === 1 && rawRows.length > 2) {
+      headers = rawRows[1] as string[];
+      dataRows = rawRows.slice(2);
+    } else {
+      headers = rawRows[0] as string[];
+      dataRows = rawRows.slice(1);
+    }
   }
 
   return dataRows
@@ -290,15 +344,18 @@ export interface CleanedFunnelRow {
   reportDate: string;
   createdDate: string;
   tahunAnggaran: number | null;
+  witel: string;
+  witelAm: string;
+  witelCc: string;
 }
 
 export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: boolean; strictIsReport?: boolean; skipIsReportFilter?: boolean; skipWitelFilter?: boolean; preferPembuat?: boolean; pembuatOnly?: boolean }): CleanedFunnelRow[] {
   const passed: CleanedFunnelRow[] = [];
 
   for (const r of rows) {
-    // ── STEP 1: Filter witel = SURAMADU
-    const witel = cleanUpper(r.WITEL);
-    if (!opts?.skipWitelFilter && !witel.includes("SURAMADU")) continue;
+    // ── STEP 1: Filter witel = SURAMADU (using WITEL_AM — AM's own witel)
+    const witelAm = cleanUpper(r.WITEL_AM ?? r.WITEL);
+    if (!opts?.skipWitelFilter && !witelAm.includes("SURAMADU")) continue;
 
     // ── STEP 2: Filter divisi = DPS / DSS
     const divisi = clean(r.DIVISI).toUpperCase();
@@ -363,7 +420,9 @@ export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: b
       estRev: parseIndonesianNumber(r.EST_REV ?? 0),
       divisi,
       segmen: clean(r.SEGMEN),
-      witel,
+      witel: witelAm,
+      witelAm,
+      witelCc: cleanUpper(r.WITEL_CC ?? r.WITEL),
       statusF: clean(r.STATUS_F),
       proses: clean(r.PROSES),
       statusProyek: clean(r.STATUS_PROYEK),
@@ -521,13 +580,76 @@ export function cleanActivityRows(rows: ParsedRow[]): CleanedActivityRow[] {
     .filter((row): row is CleanedFunnelRow => row !== null);
 }
 
+// ── NIPNAS → AM mapping from NIPNAS2AM sheet in RLEGS Perf files ───────────────
+export interface NipnasAmMapping {
+  nik: string;
+  namaAm: string;
+  divisi: string;
+}
+
+/**
+ * Parse the NIPNAS2AM sheet from a RLEGS Perf Excel file.
+ * Format: col A = NIPNAS (string like "920064"), col B = AM info
+ *   AM info format: "920064-ERVINA HANDAYANI" or "920064-ERVINA HANDAYANI,9200642-OTHER AM"
+ *   (one NIPNAS can map to multiple AMs — we take the first one)
+ * Returns: Map< nipnas_string, { nik, namaAm, divisi } >
+ */
+export function parseNipnas2AmSheet(buffer: Buffer): Map<string, NipnasAmMapping> {
+  const map = new Map<string, NipnasAmMapping>();
+  try {
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    const sheetName = "NIPNAS2AM";
+    if (!wb.SheetNames.includes(sheetName)) {
+      console.log("[NIPNAS2AM] Sheet not found in workbook");
+      return map;
+    }
+    const ws = wb.Sheets[sheetName];
+    const raw = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { header: 1, defval: null, raw: true }) as any[][];
+    for (let i = 1; i < raw.length; i++) {
+      const row = raw[i];
+      if (!row || row.length < 2) continue;
+      const nipnasRaw = row[0];
+      const amRaw = row[1];
+      if (nipnasRaw == null || amRaw == null) continue;
+      const nipnas = String(nipnasRaw).trim();
+      const amStr = String(amRaw).trim();
+      if (!nipnas || !amStr) continue;
+      // Format: "920064-ERVINA HANDAYANI" or "920064-ERVINA HANDAYANI,9200642-OTHER"
+      const firstAm = amStr.split(",")[0].trim();
+      const dashIdx = firstAm.indexOf("-");
+      if (dashIdx <= 0) continue;
+      const nik = firstAm.slice(0, dashIdx).trim();
+      const namaAm = firstAm.slice(dashIdx + 1).trim().toUpperCase();
+      if (!nik || !namaAm) continue;
+      map.set(nipnas, { nik, namaAm, divisi: "DPS" }); // divisi resolved later
+    }
+    console.log(`[NIPNAS2AM] Parsed ${map.size} NIPNAS→AM mappings`);
+  } catch (e) {
+    console.log("[NIPNAS2AM] Parse error: " + (e as Error).message);
+  }
+  return map;
+}
+
 // ── Detect whether a Buffer is pivot-cache format ─────────────────────────────
 export async function detectExcelFormat(buffer: Buffer): Promise<{ isPivot: boolean; cacheCount: number }> {
   try {
     const zip = await JSZip.loadAsync(buffer);
+
+    // Check for pivot cache XML files
     let count = 0;
     if (zip.file("xl/pivotCache/pivotCacheDefinition1.xml")) count++;
     if (zip.file("xl/pivotCache/pivotCacheDefinition2.xml")) count++;
+
+    // Prefer RAW sheet when present — RAW_AM is the authoritative data source.
+    // Some RLEGS exports contain both a RAW sheet and pivot cache XML;
+    // the RAW sheet has more complete row data and doesn't depend on NIPNAS2AM mapping,
+    // so it avoids the NIPNAS2AM→AM attribution ambiguity that causes row count discrepancies.
+    const wb = XLSX.read(buffer, { type: "buffer", raw: true });
+    const hasRawSheet = wb.SheetNames.some(n => /RAW/i.test(n));
+    if (hasRawSheet) {
+      return { isPivot: false, cacheCount: 0 };
+    }
+
     return { isPivot: count > 0, cacheCount: count };
   } catch {
     return { isPivot: false, cacheCount: 0 };
@@ -536,7 +658,8 @@ export async function detectExcelFormat(buffer: Buffer): Promise<{ isPivot: bool
 
 /**
  * Parse a specific pivot cache from an Excel buffer.
- * cacheIndex 1 = Perf. CC (no AM attribution), 2 = Perf. AM (has NIK/NAMA_AM).
+ * cacheIndex 1 = Perf. CC (WITEL only, no AM attribution).
+ * cacheIndex 2 = Perf. AM (NIK/NAMA_AM/WITEL_AM attribution per AM).
  * Returns flat records compatible with the RAW format handling in routes.ts.
  */
 export interface PivotCacheResult {
@@ -549,6 +672,8 @@ export async function parsePivotCache(buffer: Buffer, cacheIndex: 1 | 2 = 2): Pr
   const defFile = zip.file(`xl/pivotCache/pivotCacheDefinition${cacheIndex}.xml`);
   const recFile = zip.file(`xl/pivotCache/pivotCacheRecords${cacheIndex}.xml`);
 
+  console.log(`[PIVOT-CACHE-${cacheIndex}] defFile=${!!defFile} recFile=${!!recFile} availableFiles=${zip.file(/xl\/pivotCache/).map((f:any)=>f.name).join(",")}`);
+
   if (!defFile || !recFile) {
     throw new Error(`Pivot cache ${cacheIndex} tidak ditemukan dalam file Excel`);
   }
@@ -556,97 +681,120 @@ export async function parsePivotCache(buffer: Buffer, cacheIndex: 1 | 2 = 2): Pr
   const defXml = await defFile.async("string");
   const recXml = await recFile.async("string");
 
-  // ── Step 1: Parse field names and shared-items lookup tables ─────────────
-  // Format: each <cacheField name="FIELDNAME"> block contains <sharedItems ...>
-  // We extract per-field blocks by splitting on <cacheField boundaries.
-  // We MUST NOT use a greedy global regex — iterating defXml.matchAll() once
-  // gives us field names in document order without needing split.
+  // ── Step 1: Extract all cacheField blocks with their sharedItems ───────────
+  // Each cacheField: <cacheField name="FIELDNAME"><sharedItems ...>...</sharedItems></cacheField>
+  // We need to extract the field name and ALL shared items (strings, numbers, errors).
   const fieldNames: string[] = [];
-  const sharedItemsList: string[][] = [];
+  const sharedItemsList: (string | number | null)[][] = [];
 
-  // Use a global scan — safe since we only read the name attribute here
-  const fieldBlockMap = new Map<number, string>();
-  for (const m of defXml.matchAll(/<cacheField\s[^>]*name="([^"]+)"[^>]*>/g)) {
-    fieldBlockMap.set(m.index!, m[1]);
-  }
+  // Split defXml on <cacheField  boundaries to get per-field blocks
+  // We can't just split naively because cacheField names may contain the delimiter.
+  // Strategy: find each <cacheField name="..."> position, then find its matching </cacheField>.
+  let pos = 0;
+  const cfPattern = /<cacheField\s/g;
+  let match;
 
-  // Build per-field blocks by extracting content between cacheField tags
-  for (const [startIdx, fieldName] of [...fieldBlockMap.entries()].sort((a, b) => a[0] - b[0])) {
-    fieldNames.push(fieldName);
-    // Find the range of this cacheField: from startIdx to the next <cacheField or </pivotCacheDefinition>
-    const afterStart = defXml.slice(startIdx);
-    const nextCacheIdx = afterStart.indexOf("<cacheField ");
-    const nextDefIdx = afterStart.indexOf("</pivotCacheDefinition>");
-    const blockEnd = nextCacheIdx > 0 && nextCacheIdx < nextDefIdx ? nextCacheIdx : nextDefIdx;
-    const fieldBlock = afterStart.slice(0, blockEnd);
+  while ((match = cfPattern.exec(defXml)) !== null) {
+    const cfStart = match.index;
+    // Find the name attribute value inside this <cacheField tag
+    const tagEnd = defXml.indexOf(">", cfStart);
+    const tagContent = defXml.slice(cfStart, tagEnd + 1);
+    const nameMatch = tagContent.match(/name="([^"]+)"/);
+    if (!nameMatch) { pos = cfStart + 1; continue; }
+    const fieldName = nameMatch[1];
 
-    const siMatch = fieldBlock.match(/<sharedItems[^>]*>([\s\S]*?)<\/sharedItems>/);
-    if (siMatch) {
-      const vals: string[] = [];
-      for (const sm of siMatch[1].matchAll(/<s\s[^>]*v="([^"]*)"[^>]*>/g)) {
-        vals.push(sm[1]);
-      }
-      sharedItemsList.push(vals);
-    } else {
-      sharedItemsList.push([]); // Numeric field — no shared items lookup
+    // Find matching </cacheField> — not the next one (they nest)
+    // Count nesting level starting from this tag
+    let searchPos = tagEnd + 1;
+    let depth = 1;
+    while (depth > 0 && searchPos < defXml.length) {
+      if (defXml.slice(searchPos, searchPos + 12) === "</cacheField>") { depth--; searchPos += 12; }
+      else if (defXml.slice(searchPos, searchPos + 11) === "<cacheField ") { depth++; searchPos += 11; }
+      else searchPos++;
     }
+    const blockContent = defXml.slice(tagEnd + 1, searchPos);
+
+    // Extract all sharedItems values: <s v="..."/>, <n v="..."/>, <e v="..."/>, <m/>
+    const siVals: (string | number | null)[] = [];
+    // Strings: <s v="text" t="s"/> or just <s v="text"/>
+    for (const sm of blockContent.matchAll(/<s\s[^>]*v="([^"]*)"[^>]*>/g)) siVals.push(sm[1]);
+    // Numbers: <n v="123.45"/>
+    for (const sm of blockContent.matchAll(/<n\s[^>]*v="([^"]*)"[^>]*>/g)) siVals.push(parseFloat(sm[1]) || 0);
+    // Errors: <e v="..."/> → map to string
+    for (const sm of blockContent.matchAll(/<e\s[^>]*v="([^"]*)"[^>]*>/g)) siVals.push("#ERR:" + sm[1]);
+    // Missing: <m/> → null
+    const missing = (blockContent.match(/<m\s*\/>/g) || []).length;
+    for (let i = 0; i < missing; i++) siVals.push(null);
+
+    fieldNames.push(fieldName);
+    sharedItemsList.push(siVals);
+    pos = searchPos;
   }
 
-  // ── Step 2: Parse records (rows) ─────────────────────────────────────────
-  // Each <r> element contains field values as <x v="idx"/> | <n v="num"/> | <s v="str"/> | <m/>
-  // <m/> has NO v= attribute (missing/null value), count them separately.
-  // Records are split on the closing tag so we get clean per-record XML strings.
+  // ── Step 2: Parse records ──────────────────────────────────────────────────
+  // Each record: <r><x v="0"/><x v="1"/><n v="123"/><m/></r>
+  // x = shared-item index, n = number, s = inline string, m = missing/null
   const records: Record<string, string | number | null>[] = [];
 
-  // Tagged values: <x v="..."/>, <n v="..."/>, <s v="..."/>  (note: no 'm' here — handled separately)
-  // NON-GREEDY [^>]*? is critical: self-closing tags like <x v="0"/> must not swallow the
-  // next tag's v= value. Without the ? the greedy [^>]* matches past /> and consumes v="next".
-  const taggedRegex = /<(x|n|s)\s[^>]*?v="([^"]*)"[^>]*?(?:\/>|>)/g;
-  const missingRegex = /<m\s*\/>/g;
-  // Split on </r> — each record ends with this tag
+  // Split on </r> to get per-record XML strings
   const recRows = recXml.split("</r>");
 
+  // Tag patterns — use sticky-free approach with matchAll
+  const xTag = /<x\s[^>]*v="(\d+)"[^>]*>/g;
+  const nTag = /<n\s[^>]*v="([^"]*)"[^>]*>/g;
+  const sTag = /<s\s[^>]*v="([^"]*)"[^>]*>/g;
+  const mTag = /<m\s*\/>/g;
+
   for (const rowXml of recRows) {
-    if (!rowXml.trim()) continue;
-    // Skip XML declaration and root element chunks
-    const trimmed = rowXml.trim();
-    if (trimmed.startsWith("<?xml") || trimmed.startsWith("<pivotCacheRecords")) continue;
+    if (rowXml.trim().length < 5) continue;
+    const t = rowXml.trim();
+    if (t.startsWith("<?xml") || t.startsWith("<pivotCacheRecords")) continue;
 
-    // Collect non-missing tagged values in field order
-    const tagMatches: Array<{ type: string; value: string }> = [];
-    let m: RegExpExecArray | null;
-    const localTagged = new RegExp(taggedRegex.source, "g");
-    while ((m = localTagged.exec(rowXml)) !== null) {
-      tagMatches.push({ type: m[1], value: m[2] });
+    // Count total field slots in this row
+    const xCount = (rowXml.match(/<x\s/g) || []).length;
+    const nCount = (rowXml.match(/<n\s/g) || []).length;
+    const sCount = (rowXml.match(/<s\s/g) || []).length;
+    const mCount = (rowXml.match(/<m\s/g) || []).length;
+    const totalSlots = xCount + nCount + sCount + mCount;
+
+    if (totalSlots === 0) continue;
+
+    // Parse values in document order
+    const values: (string | number | null)[] = [];
+    let i = 0;
+
+    // Collect all tags with their positions
+    const tags: Array<{ pos: number; type: string; value: string | number | null }> = [];
+
+    for (const m of rowXml.matchAll(xTag)) {
+      tags.push({ pos: m.index!, type: "x", value: parseInt(m[1], 10) });
     }
-
-    // Count missing-value placeholders (each consumes one field slot)
-    const missingCount = (rowXml.match(missingRegex) || []).length;
-    const totalVals = tagMatches.length + missingCount;
+    for (const m of rowXml.matchAll(nTag)) {
+      tags.push({ pos: m.index!, type: "n", value: parseFloat(m[1]) || 0 });
+    }
+    for (const m of rowXml.matchAll(sTag)) {
+      tags.push({ pos: m.index!, type: "s", value: m[1] });
+    }
+    for (const m of rowXml.matchAll(mTag)) {
+      tags.push({ pos: m.index!, type: "m", value: null });
+    }
+    tags.sort((a, b) => a.pos - b.pos);
 
     const record: Record<string, string | number | null> = {};
-    let tagPos = 0; // next read position in tagMatches
-
     for (let f = 0; f < fieldNames.length; f++) {
-      if (tagPos < tagMatches.length) {
-        const { type, value } = tagMatches[tagPos];
-        if (type === "x") {
-          // Shared-item index → resolve via lookup table for this field
-          const idx = parseInt(value, 10);
-          record[fieldNames[f]] = sharedItemsList[f]?.[idx] ?? null;
-          tagPos++;
-        } else if (type === "n") {
-          record[fieldNames[f]] = parseFloat(value) || 0;
-          tagPos++;
-        } else if (type === "s") {
-          record[fieldNames[f]] = value || "";
-          tagPos++;
+      if (i < tags.length) {
+        const tag = tags[i];
+        if (tag.type === "x") {
+          record[fieldNames[f]] = sharedItemsList[f]?.[tag.value as number] ?? null;
+        } else if (tag.type === "n") {
+          record[fieldNames[f]] = tag.value;
+        } else if (tag.type === "s") {
+          record[fieldNames[f]] = tag.value as string;
         } else {
-          // shouldn't happen (type x/n/s only in taggedRegex)
           record[fieldNames[f]] = null;
         }
+        i++;
       } else {
-        // No more tagged values → remaining fields are null
         record[fieldNames[f]] = null;
       }
     }
@@ -658,45 +806,159 @@ export async function parsePivotCache(buffer: Buffer, cacheIndex: 1 | 2 = 2): Pr
 }
 
 /**
- * Convert parsePivotCache result to the same flat ParsedRow format
- * used by the existing RAW format handler in routes.ts.
- *
- * Column renaming (pivot cache field → expected column name):
- *   NIP_NAS_GROUP  → NIK       (AM's NIK — unique per AM, primary lookup key)
- *   NAMA           → NAMA_AM  (AM name — may not exist in some files; skip if absent)
- *   DIVISI         → DIVISI   (already correct — DPS/DSS)
- *   WITEL          → WITEL_AM (AM's witel)
- *   LEVEL          → LEVEL_AM (AM level — may be absent)
- *
- * Note: PERIODE values are shared-item indices resolved to actual strings
- * (e.g. "202612"). Numeric revenue fields are stored as <n/> in pivot cache,
- * so parseFloat() already extracted them.
+ * Convert Cache 1 parsePivotCache result to ParsedRow format.
+ * Cache 1 (Perf. CC) has: PERIODE, NIP_NAS_GROUP (= customer NIPNAS), WITEL (= SURAMADU etc.)
+ * NIK/NAMA_AM attribution comes from NIPNAS2AM sheet mapping.
  */
-export function pivotCacheRowsToParsedRows(result: PivotCacheResult): ParsedRow[] {
-  const hasNamaField = result.fields.includes("NAMA");
+export function pivotCacheRowsToParsedRows(
+  result: PivotCacheResult,
+  nipnas2am: Map<string, NipnasAmMapping> = new Map()
+): ParsedRow[] {
+  console.log("[PIVOT-TO-ROWS] fields=" + JSON.stringify(result.fields) + " recordCount=" + result.recordCount);
+  if (result.recordCount > 0) console.log("[PIVOT-TO-ROWS] sample record=" + JSON.stringify(result.records[0]));
+
+  // Precompute unique NIPNAS values from cache
+  const uniqueNipnas = new Set<string>();
+  for (const record of result.records) {
+    const nipnas = String(record.NIP_NAS_GROUP ?? record.NIP_NAS ?? "").trim();
+    if (nipnas) uniqueNipnas.add(nipnas);
+  }
+  console.log(`[PIVOT-TO-ROWS] unique NIPNAS in cache: ${uniqueNipnas.size}, mapped: ${[...uniqueNipnas].filter(n => nipnas2am.has(n)).length}`);
+
   return result.records.map(record => {
-    const row: ParsedRow = {};
-    for (const [k, v] of Object.entries(record)) {
-      if (k === "NIP_NAS_GROUP") {
-        row["NIK"] = v;
-      } else if (k === "NAMA" && hasNamaField) {
-        row["NAMA_AM"] = v;
-      } else if (k === "WITEL") {
-        row["WITEL_AM"] = v;
-      } else if (k === "LEVEL") {
-        row["LEVEL_AM"] = v;
-      } else {
-        row[k] = v;
-      }
-    }
+    // NIP_NAS_GROUP is the customer's NIPNAS — use it to resolve AM attribution
+    const customerNipnas = String(record.NIP_NAS_GROUP ?? record.NIP_NAS ?? "").trim();
+    const amMapping = customerNipnas ? nipnas2am.get(customerNipnas) : undefined;
+
+    const row: ParsedRow = {
+      // AM attribution: resolved from NIPNAS2AM sheet
+      NIK: amMapping?.nik ?? "",
+      NAMA_AM: amMapping?.namaAm ?? "",
+      LEVEL_AM: "",
+      POSITION: String(record.POSITION ?? "").trim(),
+      // WITEL_AM: derive from pivot cache WITEL directly (customer's witel = AM's witel in RLEGS exports).
+      // NIPNAS2AM mapping is used only for NIK + NAMA_AM attribution, NOT for WITEL determination.
+      WITEL_AM: String(record.WITEL ?? "").trim() || "SURAMADU",
+      // Customer / pelanggan data
+      PERIODE: String(record.PERIODE ?? "").trim(),
+      NIP_NAS_GROUP: customerNipnas,
+      NIP_NAS: customerNipnas,
+      STANDARD_NAME: String(record.STANDARD_NAME ?? "").trim(),
+      GROUP: String(record.GROUP ?? "").trim(),
+      INDUSTRI: String(record.INDUSTRI ?? "").trim(),
+      LSEGMEN: String(record.LSEGMEN ?? "").trim(),
+      SSEGMEN: String(record.SSEGMEN ?? "").trim(),
+      WITEL_CC: String(record.WITEL_CC ?? record.WITEL ?? "").trim() || "SURAMADU",
+      TELDA: String(record.TELDA ?? "").trim(),
+      REGIONAL: String(record.REGIONAL ?? "").trim(),
+      DIVISI_CC: String(record.DIVISI ?? "").trim(),
+      KAWASAN: String(record.KAWASAN ?? "").trim(),
+      PROPORSI: record.PROPORSI ?? 0,
+      LAYANAN: String(record.LAYANAN ?? "").trim(),
+      // Revenue data
+      TARGET_REVENUE: typeof record.TARGET_REVENUE === "number" ? record.TARGET_REVENUE : parseIndonesianNumber(record.TARGET_REVENUE),
+      TARGET_SUSTAIN: typeof record.TARGET_SUSTAIN === "number" ? record.TARGET_SUSTAIN : parseIndonesianNumber(record.TARGET_SUSTAIN),
+      TARGET_SCALING: typeof record.TARGET_SCALING === "number" ? record.TARGET_SCALING : parseIndonesianNumber(record.TARGET_SCALING),
+      TARGET_NGTMA: typeof record.TARGET_NGTMA === "number" ? record.TARGET_NGTMA : parseIndonesianNumber(record.TARGET_NGTMA),
+      REAL_REVENUE: typeof record.REAL_REVENUE === "number" ? record.REAL_REVENUE : parseIndonesianNumber(record.REAL_REVENUE),
+      REAL_SUSTAIN: typeof record.REAL_SUSTAIN === "number" ? record.REAL_SUSTAIN : parseIndonesianNumber(record.REAL_SUSTAIN),
+      REAL_SCALING: typeof record.REAL_SCALING === "number" ? record.REAL_SCALING : parseIndonesianNumber(record.REAL_SCALING),
+      REAL_NGTMA: typeof record.REAL_NGTMA === "number" ? record.REAL_NGTMA : parseIndonesianNumber(record.REAL_NGTMA),
+      REVENUE_BASE: typeof record.REVENUE_BASE === "number" ? record.REVENUE_BASE : parseIndonesianNumber(record.REVENUE_BASE),
+      REVENUE_BILLCOM: typeof record.REVENUE_BILLCOM === "number" ? record.REVENUE_BILLCOM : parseIndonesianNumber(record.REVENUE_BILLCOM),
+      a_rev: record.a_rev ?? null,
+      a_ngtma: record.a_ngtma ?? null,
+      a_scaling: record.a_scaling ?? null,
+      a_sustain: record.a_sustain ?? null,
+      // Extra columns (not in DB but kept for compatibility)
+      DIVISI_AM: amMapping?.divisi ?? String(record.DIVISI ?? "").trim(),
+      kw: record.kw ?? null,
+    };
     return row;
   });
 }
 
 /**
- * Export pivot cache data back to a simple XLSX Buffer.
- * Useful for debugging / verifying the parsed data.
+ * Convert Cache 2 (Perf. AM pivot cache) result to ParsedRow format.
+ * Cache 2 has NIK/NAMA_AM/WITEL_AM directly — use it as authoritative source.
  */
+export function pivotCacheRowsToParsedRowsFromCache2(
+  result: PivotCacheResult,
+  nipnas2am: Map<string, NipnasAmMapping> = new Map()
+): ParsedRow[] {
+  console.log("[PIVOT-C2-TO-ROWS] recordCount=" + result.recordCount);
+  return result.records.map(record => {
+    const nik = String(record.NIK ?? "").trim();
+    const namaAm = String(record.NAMA_AM ?? "").trim();
+    const nipNasGroup = String(record.NIP_NAS_GROUP ?? "").trim();
+
+    const resolvedNik = nik || (nipNasGroup ? nipnas2am.get(nipNasGroup)?.nik ?? "" : "");
+    const resolvedNamaAm = namaAm || (nipNasGroup ? nipnas2am.get(nipNasGroup)?.namaAm ?? "" : "");
+
+    const witelAm = String(record.WITEL_AM ?? "").trim().toUpperCase();
+    if (!witelAm.includes("SURAMADU")) return null;
+
+    const row: ParsedRow = {
+      NIK: resolvedNik,
+      NAMA_AM: resolvedNamaAm,
+      LEVEL_AM: String(record.LEVEL_AM ?? "").trim(),
+      POSITION: String(record.POSITION ?? "").trim(),
+      WITEL_AM: witelAm,
+      DIVISI_AM: String(record.DIVISI_AM ?? "").trim(),
+      PERIODE: String(record.PERIODE ?? "").trim(),
+      NIP_NAS_GROUP: nipNasGroup,
+      NIP_NAS: String(record.NIP_NAS ?? "").trim(),
+      STANDARD_NAME: String(record.STANDARD_NAME ?? "").trim(),
+      GROUP: String(record.GROUP ?? "").trim(),
+      INDUSTRI: String(record.INDUSTRI ?? "").trim(),
+      LSEGMEN: String(record.LSEGMEN ?? "").trim(),
+      SSEGMEN: String(record.SSEGMEN ?? "").trim(),
+      WITEL_CC: String(record.WITEL_CC ?? "").trim() || "SURAMADU",
+      TELDA: String(record.TELDA ?? "").trim(),
+      REGIONAL: String(record.REGIONAL ?? "").trim(),
+      DIVISI_CC: String(record.DIVISI_CC ?? "").trim(),
+      KAWASAN: String(record.KAWASAN ?? "").trim(),
+      PROPORSI: record.PROPORSI ?? 0,
+      LAYANAN: String(record.LAYANAN ?? "").trim(),
+      TARGET_REVENUE: typeof record.TARGET_REVENUE === "number" ? record.TARGET_REVENUE : parseIndonesianNumber(record.TARGET_REVENUE),
+      TARGET_SUSTAIN: typeof record.TARGET_SUSTAIN === "number" ? record.TARGET_SUSTAIN : parseIndonesianNumber(record.TARGET_SUSTAIN),
+      TARGET_SCALING: typeof record.TARGET_SCALING === "number" ? record.TARGET_SCALING : parseIndonesianNumber(record.TARGET_SCALING),
+      TARGET_NGTMA: typeof record.TARGET_NGTMA === "number" ? record.TARGET_NGTMA : parseIndonesianNumber(record.TARGET_NGTMA),
+      REAL_REVENUE: typeof record.REAL_REVENUE === "number" ? record.REAL_REVENUE : parseIndonesianNumber(record.REAL_REVENUE),
+      REAL_SUSTAIN: typeof record.REAL_SUSTAIN === "number" ? record.REAL_SUSTAIN : parseIndonesianNumber(record.REAL_SUSTAIN),
+      REAL_SCALING: typeof record.REAL_SCALING === "number" ? record.REAL_SCALING : parseIndonesianNumber(record.REAL_SCALING),
+      REAL_NGTMA: typeof record.REAL_NGTMA === "number" ? record.REAL_NGTMA : parseIndonesianNumber(record.REAL_NGTMA),
+      REVENUE_BASE: typeof record.REVENUE_BASE === "number" ? record.REVENUE_BASE : parseIndonesianNumber(record.REVENUE_BASE),
+      REVENUE_BILLCOM: typeof record.REVENUE_BILLCOM === "number" ? record.REVENUE_BILLCOM : parseIndonesianNumber(record.REVENUE_BILLCOM),
+      a_rev: record.a_rev ?? null,
+      a_ngtma: record.a_ngtma ?? null,
+      a_scaling: record.a_scaling ?? null,
+      a_sustain: record.a_sustain ?? null,
+      kw: record.kw ?? null,
+    };
+    return row;
+  }).filter((r): r is ParsedRow => r !== null);
+}
+
+// Debug: export parsed pivot cache to XLSX file in .tmp-import for inspection
+async function debugExportPivotCache(result: PivotCacheResult) {
+  try {
+    const ws = XLSX.utils.json_to_sheet(result.records.slice(0, 10)); // first 10 rows
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "pivot_cache");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const fs = await import("fs");
+    const path = await import("path");
+    const tmpPath = path.join(process.cwd(), ".tmp-import", `pivot_debug_${Date.now()}.xlsx`);
+    fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
+    fs.writeFileSync(tmpPath, buf);
+    console.log("[PIVOT-DEBUG] Exported to " + tmpPath + " | fields=" + result.fields.join(","));
+  } catch (e) {
+    console.log("[PIVOT-DEBUG] Export failed: " + (e as Error).message);
+  }
+}
+
+
 export function exportPivotCacheToXlsx(result: PivotCacheResult): Buffer {
   const ws = XLSX.utils.json_to_sheet(result.records);
   const wb = XLSX.utils.book_new();

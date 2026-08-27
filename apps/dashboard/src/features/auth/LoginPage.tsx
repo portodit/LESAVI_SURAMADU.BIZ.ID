@@ -1,28 +1,52 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useLocation } from "wouter";
+import { useAuthMachine } from "@/shared/hooks/use-auth-machine";
 import { useAuth } from "@/shared/hooks/use-auth";
 import { Loader2, Eye, EyeOff, Lock, User } from "lucide-react";
+import { useToast } from "@/shared/hooks/use-toast";
 
 export default function Login() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const { login } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
+  const authMachine = useAuthMachine();
+  const { user, isLoading: authLoading } = useAuth();
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
-  const [error, setError] = useState("");
+  // If already logged in via dashboard session cookie (ADMIN/OFFICER/MANAGER), redirect to dashboard.
+  // ACCOUNT_MANAGER should NOT be redirected — they must use /presentation/login.
+  useEffect(() => {
+    if (user && user.role !== "ACCOUNT_MANAGER") {
+      setLocation("/import");
+    }
+    // If no user, stay on login page — no redirect needed
+    // If ACCOUNT_MANAGER, also stay on login page (they shouldn't login here anyway)
+  }, [user, setLocation]);
+
+  const isLoading =
+    authLoading ||
+    authMachine.state === "CREDENTIAL_VALIDATING" ||
+    authMachine.state === "OTP_REQUIRED" ||
+    authMachine.state === "AUTHENTICATED";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    setIsLoading(true);
-    try {
-      await login({ email: identifier, password });
-    } catch {
-      setError("Email/NIK atau password salah. Silakan coba lagi.");
-    } finally {
-      setIsLoading(false);
-    }
+    await authMachine.login(identifier, password);
   };
+
+  // Navigate on state transitions — use navigateOnSuccess so AuthProvider has the
+  // correct user state BEFORE navigating, preventing race with ProtectedApp.
+  useEffect(() => {
+    if (authMachine.state === "AUTHENTICATED") {
+      toast({ title: "Login berhasil", description: "Selamat datang kembali.", variant: "success" });
+      authMachine.navigateOnSuccess();
+    } else if (authMachine.state === "OTP_REQUIRED") {
+      setLocation("/auth/otp-verify");
+    } else if (authMachine.state === "TELEGRAM_LINK_REQUIRED") {
+      setLocation("/auth/telegram-link");
+    }
+  }, [authMachine.state, setLocation]);
 
   return (
     <div className="relative flex min-h-screen w-full overflow-hidden">
@@ -93,9 +117,9 @@ export default function Login() {
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-5">
 
-              {error && (
+              {authMachine.error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-2xl">
-                  {error}
+                  {authMachine.error}
                 </div>
               )}
 

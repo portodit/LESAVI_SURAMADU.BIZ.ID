@@ -11,7 +11,7 @@ function isKpiLabel(label: string | null | undefined): boolean {
 }
 
 // ── GET /api/public/activity/snapshots ─────────────────────────────────────────
-router.get("/public/activity/snapshots", async (_req, res): Promise<void> => {
+router.get("/activity/snapshots", async (_req, res): Promise<void> => {
   const snaps = await db
     .select()
     .from(dataImportsTable)
@@ -29,7 +29,7 @@ router.get("/public/activity/snapshots", async (_req, res): Promise<void> => {
 });
 
 // ── GET /api/public/activity ───────────────────────────────────────────────────
-router.get("/public/activity", async (req, res): Promise<void> => {
+router.get("/activity", async (req, res): Promise<void> => {
   const { year, month, divisi, import_id } = req.query;
 
   const [allActs, ams, settingsArr, activityImports] = await Promise.all([

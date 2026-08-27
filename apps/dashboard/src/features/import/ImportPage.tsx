@@ -22,7 +22,7 @@ import { id } from "date-fns/locale";
 const TABS = [
   { id: "performansi", label: "Performa AM",   icon: BarChart2, type: "performance" },
   { id: "funnel",      label: "Sales Funnel",  icon: Filter,    type: "funnel" },
-  { id: "activity",   label: "Sales Activity", icon: Activity,  type: "activity" },
+  { id: "activity",    label: "Sales Activity", icon: Activity,  type: "activity" },
   { id: "target-ho",  label: "Target HO",      icon: Target,    type: "target" },
   { id: "target-am",  label: "Target AM",      icon: Users,     type: "target-am" },
 ];
@@ -54,8 +54,8 @@ export function extractDateFromFilename(source: string): { display: string; isoD
   }
   // Pattern 2: parentheses around date: PERFORMANSI RLEGS 2026 (20260607).xlsx
   const match2 = source.match(/\((\d{8})\)/);
-  if (match1) {
-    const raw = match1[1];
+  if (match2) {
+    const raw = match2[1];
     const year = raw.slice(0, 4);
     const month = raw.slice(4, 6);
     const day = raw.slice(6, 8);
@@ -67,7 +67,13 @@ export function extractDateFromFilename(source: string): { display: string; isoD
       display: `${day}/${month}/${year}`,
     };
   }
-  // Pattern 2: parentheses around date: PERFORMANSI RLEGS 2026 (20260607).xlsx
+}
+
+/** Normalize period display: handle both YYYYMM (6-digit) and YYYY-MM formats */
+function displayPeriod(p: string): string {
+  if (!p) return "—";
+  if (p.length === 6) return `${p.slice(0, 4)}-${p.slice(4, 6)}`;
+  return p;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -105,26 +111,20 @@ async function readSheetNames(file: File): Promise<string[]> {
  * Returns true if pivotCacheDefinition files are found inside the ZIP.
  */
 async function isPivotCacheFile(file: File): Promise<boolean> {
+  // Read entire file as ASCII and scan for pivotCacheDefinition string.
+  // ZIP Central Directory stores all entry names uncompressed — this is the most reliable method.
   return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = () => {
       try {
-        const data = e.target?.result as ArrayBuffer;
-        const uint8 = new Uint8Array(data);
-        // Check for ZIP signature (PK)
-        if (uint8[0] !== 0x50 || uint8[1] !== 0x4B) {
-          resolve(false);
-          return;
-        }
-        // Read ZIP to check for pivotCacheDefinition
-        const JSZip = require("jszip");
-        JSZip.loadAsync(data).then(zip => {
-          const pivotFiles = Object.keys(zip.files).filter(k => k.includes("pivotCacheDefinition"));
-          resolve(pivotFiles.length > 0);
-        }).catch(() => resolve(false));
-      } catch {
-        resolve(false);
-      }
+        const uint8 = new Uint8Array(reader.result as ArrayBuffer);
+        // Check ZIP signature first
+        if (uint8[0] !== 0x50 || uint8[1] !== 0x4B) { resolve(false); return; }
+        // Decode as ASCII and search
+        const decoder = new TextDecoder("iso-8859-1");
+        const text = decoder.decode(uint8);
+        resolve(text.includes("pivotCacheDefinition"));
+      } catch { resolve(false); }
     };
     reader.onerror = () => resolve(false);
     reader.readAsArrayBuffer(file);
@@ -600,11 +600,17 @@ export default function ImportData() {
   }, [isPending]);
 
   const filteredHistory = history?.filter(h => h.type === activeTabData.type) || [];
-  const todayStr = format(new Date(), "yyyy-MM-dd");
-  const sameDayImport = filteredHistory.find(h => format(new Date(h.createdAt), "yyyy-MM-dd") === todayStr);
+  // Show warning only for actual conflict (same period + same snapshot date)
+  const sameDayImport = filteredHistory.find(h =>
+    finalPeriod && h.period?.replace("-", "") === finalPeriod.replace("-", "") &&
+    h.snapshotDate === finalSnapshotDate
+  );
 
   // ── File selection handler ─────────────────────────────────────────────────
   const applyFile = useCallback(async (file: File) => {
+    // ALWAYS clear sheet picker FIRST — prevents ghost modal from previous session
+    setSheetPicker(null);
+
     // Check if this is a pivot cache file FIRST
     const pivot = await isPivotCacheFile(file);
 
@@ -617,7 +623,6 @@ export default function ImportData() {
       // Set file with empty sheet name (backend will extract from pivot cache)
       setFiles(prev => ({ ...prev, [activeTab]: file }));
       setSheetNames(prev => ({ ...prev, [activeTab]: ""}));
-      setSheetPicker(null);
       return;
     }
 
@@ -1375,10 +1380,10 @@ export default function ImportData() {
                   <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl border bg-amber-50 border-amber-300 text-amber-800">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
                     <div className="text-xs">
-                      <p className="font-bold mb-0.5">Sudah Ada Snapshot Hari Ini</p>
+                      <p className="font-bold mb-0.5">Snapshot Duplikat Terdeteksi</p>
                       <p className="text-amber-700 leading-relaxed">
-                        {formatSnapshotTitle(sameDayImport.createdAt, sameDayImport.type, sameDayImport.snapshotDate)} sudah tersimpan ({sameDayImport.rowsImported} baris).
-                        Jika Anda mengimport ulang, data lama untuk periode ini akan <strong>ditimpa</strong>.
+                        Data dengan periode dan tanggal snapshot yang sama sudah ada (ID #{sameDayImport.id}, {sameDayImport.rowsImported} baris).
+                        Mengklik "Import Sekarang" akan <strong>menimpa data lama</strong>.
                       </p>
                     </div>
                   </div>
@@ -1446,7 +1451,7 @@ export default function ImportData() {
                     <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary/60" />
                     <div>
                       <span className="font-semibold text-foreground">Pipeline cleaning aktif:</span>
-                      {activeTab === "performansi" && " File RAW (PERIODE, NAMA_AM, TARGET_REVENUE, REAL_REVENUE per pelanggan) — otomatis diagregasi per AM."}
+                      {activeTab === "performansi" && " Filter WITEL_CC=SURAMADU, ekstrak dari pivot cache (cache #2) atau sheet RAW_AM."}
                       {activeTab === "funnel" && " Filter witel=SURAMADU, divisi=DPS/DSS, validasi NIK, fix AM Reni→Havea (mulai 2026), UPPER+TRIM pelanggan."}
                     </div>
                   </div>
@@ -1726,7 +1731,7 @@ export default function ImportData() {
                     <p className="text-xs font-semibold text-foreground leading-snug">{formatSnapshotTitle(h.createdAt, h.type, h.snapshotDate)}</p>
                     <p className="text-[10px] text-muted-foreground mt-0.5">{format(new Date(h.createdAt), 'HH:mm:ss', { locale: id })} WIB · ID #{h.id}</p>
                   </td>
-                  <td className="px-5 py-3.5 font-mono text-sm text-foreground">{h.period}</td>
+                  <td className="px-5 py-3.5 font-mono text-sm text-foreground">{displayPeriod(h.period)}</td>
                   <td className="px-5 py-3.5 text-right font-semibold text-foreground tabular-nums">{h.rowsImported.toLocaleString('id-ID')}</td>
                   <td className="px-5 py-3.5">
                     <span className="inline-flex items-center gap-1 text-emerald-600 text-xs font-semibold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">

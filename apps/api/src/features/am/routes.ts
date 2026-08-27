@@ -6,7 +6,8 @@ import { slugify } from "../import/excel";
 
 const router: IRouter = Router();
 
-router.get("/am", requireAuth, async (req, res): Promise<void> => {
+// Routes are at / (not /am) — mounted at /api/am in app.ts
+router.get("/", requireAuth, async (req, res): Promise<void> => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   res.setHeader("Pragma", "no-cache");
   const ams = await db.select().from(accountManagersTable).orderBy(accountManagersTable.nama);
@@ -19,15 +20,15 @@ router.get("/am", requireAuth, async (req, res): Promise<void> => {
   })));
 });
 
-router.post("/am", requireAuth, async (req, res): Promise<void> => {
+router.post("/", requireAuth, async (req, res): Promise<void> => {
   const { nik, nama, role, tipe, divisi, segmen, witel, email, telegramChatId, kpiActivity } = req.body;
   if (!nama) {
     res.status(400).json({ error: "Nama wajib diisi" });
     return;
   }
 
-  const resolvedRole = (["OFFICER", "MANAGER", "AM"].includes(role) ? role : "AM") as "OFFICER" | "MANAGER" | "AM";
-  const resolvedTipe = (["LESA", "GOVT"].includes(tipe) ? tipe : "LESA") as "LESA" | "GOVT";
+  const resolvedRole = (["OFFICER", "MANAGER", "ACCOUNT_MANAGER", "ADMIN"].includes(role) ? role : "ACCOUNT_MANAGER") as "OFFICER" | "MANAGER" | "ACCOUNT_MANAGER" | "ADMIN";
+  const resolvedTipe = (["LESA"].includes(tipe) ? tipe : "LESA") as "LESA";
 
   if (resolvedRole === "AM" && !divisi) {
     res.status(400).json({ error: "Divisi wajib diisi untuk role AM" });
@@ -59,15 +60,14 @@ router.post("/am", requireAuth, async (req, res): Promise<void> => {
   res.status(201).json({ ...am, passwordHash: undefined, registeredAkun: !!am.passwordHash, telegramConnected: !!am.telegramChatId, createdAt: am.createdAt.toISOString() });
 });
 
-// ── Toggle aktif status (MUST be before /am/:id) ─────────────────────────────
-
-router.patch("/am/:id/aktif", requireAuth, async (req, res): Promise<void> => {
+// Toggle aktif status (MUST be before /:id)
+router.patch("/:id/aktif", requireAuth, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   const user = (req as any).user;
-  if (!user || !["OFFICER", "MANAGER"].includes(user.role)) {
-    res.status(403).json({ error: "Hanya Officer atau Manager yang dapat mengubah status" });
+  if (!user || !["ADMIN", "OFFICER", "MANAGER"].includes(user.role)) {
+    res.status(403).json({ error: "Hanya Admin, Officer, atau Manager yang dapat mengubah status" });
     return;
   }
 
@@ -82,9 +82,8 @@ router.patch("/am/:id/aktif", requireAuth, async (req, res): Promise<void> => {
   res.json({ ...am, passwordHash: undefined, registeredAkun: !!am.passwordHash, telegramConnected: !!am.telegramChatId, createdAt: am.createdAt.toISOString() });
 });
 
-// ── Individual AM CRUD ────────────────────────────────────────────────────────
-
-router.get("/am/:id", requireAuth, async (req, res): Promise<void> => {
+// Individual AM CRUD
+router.get("/:id", requireAuth, async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   const [am] = await db.select().from(accountManagersTable).where(eq(accountManagersTable.id, id));
@@ -92,19 +91,21 @@ router.get("/am/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ ...am, passwordHash: undefined, registeredAkun: !!am.passwordHash, telegramConnected: !!am.telegramChatId, createdAt: am.createdAt.toISOString() });
 });
 
-router.patch("/am/:id", requireAuth, async (req, res): Promise<void> => {
+router.patch("/:id", requireAuth, async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
-  const { nama, role, tipe, divisi, segmen, witel, telegramChatId, kpiActivity, email } = req.body;
+  const { nama, role, tipe, divisi, segmen, witel, telegramChatId, telegramUsername, telegramDisplayName, kpiActivity, email } = req.body;
 
   const updates: Partial<typeof accountManagersTable.$inferInsert> = {};
   if (nama !== undefined) { updates.nama = nama; updates.slug = slugify(nama) + "-" + Date.now().toString(36); }
-  if (role !== undefined) updates.role = ["OFFICER", "MANAGER", "AM"].includes(role) ? role : "AM";
-  if (tipe !== undefined) updates.tipe = ["LESA", "GOVT"].includes(tipe) ? tipe : "LESA";
+  if (role !== undefined) updates.role = ["OFFICER", "MANAGER", "ACCOUNT_MANAGER", "ADMIN"].includes(role) ? role : "ACCOUNT_MANAGER";
+  if (tipe !== undefined) updates.tipe = ["LESA"].includes(tipe) ? tipe : "LESA";
   if (divisi !== undefined) updates.divisi = divisi;
   if (segmen !== undefined) updates.segmen = segmen;
   if (witel !== undefined) updates.witel = witel;
-  if (telegramChatId !== undefined) updates.telegramChatId = telegramChatId;
+  if (telegramChatId !== undefined) updates.telegramChatId = telegramChatId || null;
+  if (telegramUsername !== undefined) updates.telegramUsername = telegramUsername || null;
+  if (telegramDisplayName !== undefined) updates.telegramDisplayName = telegramDisplayName || null;
   if (kpiActivity !== undefined) updates.kpiActivity = kpiActivity;
   if (email !== undefined) updates.email = email || null;
 
@@ -113,7 +114,7 @@ router.patch("/am/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ ...am, passwordHash: undefined, registeredAkun: !!am.passwordHash, telegramConnected: !!am.telegramChatId, createdAt: am.createdAt.toISOString() });
 });
 
-router.delete("/am/:id", requireAuth, async (req, res): Promise<void> => {
+router.delete("/:id", requireAuth, async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   await db.delete(accountManagersTable).where(eq(accountManagersTable.id, id));

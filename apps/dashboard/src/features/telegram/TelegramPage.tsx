@@ -7,7 +7,8 @@ import { id as idLocale } from "date-fns/locale";
 import {
   Send, History, CheckCircle2, XCircle, Users, RefreshCw,
   Link2, Unlink, BarChart2, GitBranch, Activity, MessageSquare,
-  Copy, Clock, ChevronRight, Download, ExternalLink, Trash2, X, ClipboardList
+  Copy, Clock, ChevronRight, Download, ExternalLink, Trash2, X, ClipboardList,
+  Shield, KeyRound, AlertCircle
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 
@@ -531,7 +532,214 @@ function BulkLinksModal({ data, expiresAt, onClose }: { data: BulkLink[]; expire
   );
 }
 
-function KoneksiAmSection() {
+const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  ADMIN:           { label: "Admin",           color: "text-red-700",      bg: "bg-red-100"       },
+  OFFICER:        { label: "Officer",         color: "text-purple-700",   bg: "bg-purple-100"    },
+  MANAGER:        { label: "Manager",         color: "text-orange-700",   bg: "bg-orange-100"    },
+  ACCOUNT_MANAGER: { label: "AM",              color: "text-emerald-700", bg: "bg-emerald-100"   },
+};
+
+// ── BulkDownloadButton — generates legacy LESAVI-NIK codes CSV ─────────────────
+function BulkDownloadButton({ onRefresh }: { onRefresh: () => void }) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+
+  const handleDownload = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch("/telegram/bulk-generate-codes", { method: "POST" });
+      if (!data.results?.length) {
+        toast({ title: "Semua AM sudah terhubung", description: "Tidak ada AM yang perlu dibuatkan kode verifikasi." });
+        return;
+      }
+
+      const header = "Nama AM,NIK,Divisi,Kode Verifikasi,Berlaku Sampai";
+      const rows = data.results.map((r: any) => {
+        const expiry = new Date(r.expiresAt).toLocaleString("id-ID", { hour12: false });
+        return `"${r.nama}","${r.nik}","${r.divisi}","${r.code}","${expiry}"`;
+      });
+      const csv = [header, ...rows].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kode-verifikasi-telegram-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast({ title: `${data.total} kode berhasil dibuat`, description: "File CSV telah diunduh. Bagikan kode kepada masing-masing AM." });
+      onRefresh();
+    } catch {
+      toast({ title: "Gagal generate kode", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleDownload}
+      disabled={loading}
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-foreground rounded-lg hover:bg-secondary/50 disabled:opacity-50 transition-colors"
+    >
+      <Download className={cn("w-3.5 h-3.5", loading && "animate-pulse")} />
+      {loading ? "Membuat kode..." : "Generate & Download CSV"}
+    </button>
+  );
+}
+
+// ── GenCodeModal — Shows LV-XXXXXX code after generation ──────────────────────
+function GenCodeModal({ code, link, nama, expiresAt, onClose }: {
+  code: string; link: string | null; nama: string; expiresAt: string; onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+  const copy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast({ title: "Tersalin!", description: "Kode verifikasi sudah disalin ke clipboard." });
+  };
+  const expiryLabel = format(new Date(expiresAt), "dd MMM yyyy HH:mm", { locale: idLocale });
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <h2 className="font-display font-bold text-base text-foreground">Kode Verifikasi Dibuat</h2>
+              <p className="text-xs text-muted-foreground">untuk {nama}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 text-center space-y-3">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Kode Verifikasi</p>
+          <p className="text-3xl font-mono font-bold tracking-widest text-primary">{code}</p>
+          <p className="text-[11px] text-muted-foreground">
+            Berlaku hingga <span className="font-semibold text-foreground">{expiryLabel}</span>
+          </p>
+        </div>
+
+        {link && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700 space-y-1.5">
+            <p className="font-semibold">Tautan Langsung:</p>
+            <div className="flex items-center gap-1.5">
+              <input readOnly value={link} className="flex-1 text-[10px] font-mono px-2 py-1 border border-blue-200 rounded bg-white truncate" />
+              <button onClick={() => copy(link)} className="shrink-0 p-1 text-blue-600 hover:text-blue-800">
+                {copied ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+              </button>
+              <a href={link} target="_blank" rel="noreferrer" className="shrink-0 p-1 text-blue-600 hover:text-blue-800">
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700 space-y-1">
+          <p className="font-semibold flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> Cara Penggunaan:</p>
+          <ol className="list-decimal list-inside space-y-0.5">
+            <li>Bagikan kode/tautan ke {nama}</li>
+            <li>{nama} buka Telegram → cari bot → ketik/ tempel kode</li>
+            <li>Akun Telegram otomatis terhubung</li>
+          </ol>
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={() => copy(code)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-primary text-white rounded-lg font-semibold text-sm hover:bg-primary/90 transition-colors">
+            <Copy className="w-4 h-4" /> Salin Kode
+          </button>
+          <button onClick={onClose} className="flex-1 py-2.5 border border-border rounded-lg font-semibold text-sm text-muted-foreground hover:bg-secondary transition-colors">
+            Tutup
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ── SelectUserModal — Pick a user to generate code for ─────────────────────────
+function SelectUserModal({ users, onPick, onClose, loading }: {
+  users: any[]; onPick: (userId: number) => void; onClose: () => void; loading: boolean;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = users.filter(u =>
+    !u.telegramConnected && (
+      u.nama.toLowerCase().includes(search.toLowerCase()) ||
+      u.nik?.toLowerCase().includes(search.toLowerCase()) ||
+      u.role.toLowerCase().includes(search.toLowerCase())
+    )
+  );
+  const roleCfg = (role: string) => ROLE_CONFIG[role] ?? ROLE_CONFIG["ACCOUNT_MANAGER"];
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col max-h-[80vh]">
+        <div className="flex items-center justify-between p-5 border-b border-border shrink-0">
+          <div className="flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-primary" />
+            <h2 className="font-display font-bold text-sm text-foreground">Buat Kode Verifikasi</h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="px-5 pt-3 pb-2 shrink-0">
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Cari nama, NIK, atau role..."
+            className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
+        </div>
+        <div className="overflow-y-auto px-5 pb-5 space-y-1 flex-1">
+          {filtered.length === 0 ? (
+            <p className="text-center text-xs text-muted-foreground py-8">
+              {users.filter(u => !u.telegramConnected).length === 0
+                ? "Semua pengguna sudah terhubung Telegram"
+                : "Tidak ada hasil pencarian"}
+            </p>
+          ) : (
+            filtered.map(u => {
+              const cfg = roleCfg(u.role);
+              return (
+                <button key={u.id}
+                  onClick={() => onPick(u.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/50 text-left transition-colors border border-transparent hover:border-border">
+                  <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0">
+                    {(u.nama || "?")[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{u.nama}</p>
+                    <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                      {u.nik && <span className="font-mono">{u.nik}</span>}
+                      <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold", cfg.bg, cfg.color)}>{cfg.label}</span>
+                      {u.divisi && <span>{u.divisi}</span>}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5 shrink-0">
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ── VerifikasiSection ─────────────────────────────────────────────────────────
+function VerifikasiSection() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [linkTarget, setLinkTarget] = useState<string | null>(null);
@@ -540,10 +748,14 @@ function KoneksiAmSection() {
   const [bulkLinksData, setBulkLinksData] = useState<{ results: BulkLink[]; expiresAt: string } | null>(null);
   const [genBulkLoading, setGenBulkLoading] = useState(false);
   const [showSubscribers, setShowSubscribers] = useState(false);
+  const [showSelectUser, setShowSelectUser] = useState(false);
+  const [genCodeResult, setGenCodeResult] = useState<{ code: string; link: string | null; nama: string; expiresAt: string } | null>(null);
+  const [genCodeLoading, setGenCodeLoading] = useState(false);
 
-  const { data: ams, refetch: refetchAms } = useQuery<any[]>({
-    queryKey: ["ams"],
-    queryFn: () => apiFetch("/am"),
+  // Fetch ALL users (all roles) for verification table
+  const { data: allUsers, refetch: refetchUsers } = useQuery<any[]>({
+    queryKey: ["tg-users"],
+    queryFn: () => apiFetch("/telegram/users"),
     staleTime: 0,
   });
   const { data: updates, isLoading: pollLoading, refetch: refetchUpdates, error: pollError } = useQuery<any>({
@@ -559,27 +771,41 @@ function KoneksiAmSection() {
   });
   const botUsername: string | null = botStatus?.botUsername ?? null;
 
-  const nonDgsAms = ams?.filter((a: any) => a.divisi !== "DGS") || [];
-  const connectedAms = nonDgsAms.filter((a: any) => a.telegramConnected);
+  // Legacy AM list for KirimPesan section (used for mapping in subscribers table)
+  const { data: ams } = useQuery<any[]>({ queryKey: ["ams"], queryFn: () => apiFetch("/am") });
+
+  const nonDgsUsers = allUsers?.filter((u: any) => u.divisi !== "DGS") || [];
+  const connectedUsers = nonDgsUsers.filter((u: any) => u.telegramConnected);
 
   const syncAll = async () => {
     try { await apiFetch("/telegram/sync-now", { method: "POST" }); } catch { /* non-fatal */ }
     await refetchUpdates();
-    await refetchAms();
+    await refetchUsers();
   };
 
-  const genCodeMut = useMutation({
-    mutationFn: (amId: number) => apiFetch("/telegram/register-code", { method: "POST", body: JSON.stringify({ amId }) }),
-    onSuccess: () => { refetchAms(); },
+  // Generate LV-XXXXXX code (permission-based, new endpoint)
+  const genLVMut = useMutation({
+    mutationFn: (userId: number) => apiFetch("/telegram/access-codes", {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    }),
+    onSuccess: (data: any) => {
+      setGenCodeResult({ code: data.code, link: data.link, nama: data.userNama, expiresAt: data.expiresAt });
+      setShowSelectUser(false);
+      refetchUsers();
+    },
+    onError: (e: any) => {
+      toast({ title: "Gagal", description: e.error || "Tidak bisa membuat kode verifikasi", variant: "destructive" });
+    },
   });
 
   const linkMut = useMutation({
     mutationFn: (body: { amId: number; chatId: string }) =>
       apiFetch("/telegram/link-am", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: async () => {
-      toast({ title: "Berhasil Dihubungkan", description: "AM berhasil dikaitkan dengan akun Telegram" });
+      toast({ title: "Berhasil Dihubungkan", description: "Pengguna berhasil dikaitkan dengan akun Telegram" });
       setLinkTarget(null); setSelectedAmId("");
-      await refetchAms();
+      await refetchUsers();
       await refetchUpdates();
     },
     onError: (e: any) => toast({ title: "Gagal", description: e.error, variant: "destructive" }),
@@ -589,7 +815,7 @@ function KoneksiAmSection() {
     mutationFn: (amId: number) => apiFetch(`/telegram/unlink-am/${amId}`, { method: "DELETE" }),
     onSuccess: async () => {
       toast({ title: "Koneksi dilepas" });
-      await refetchAms();
+      await refetchUsers();
       await refetchUpdates();
     },
   });
@@ -600,10 +826,10 @@ function KoneksiAmSection() {
       body: JSON.stringify(amIds ? { amIds } : {}),
     }),
     onSuccess: async (_, amIds) => {
-      const count = amIds ? amIds.length : connectedAms.length;
+      const count = amIds ? amIds.length : connectedUsers.length;
       toast({ title: `${count} koneksi dilepas` });
       setSelectedIds(new Set());
-      await refetchAms();
+      await refetchUsers();
       qc.invalidateQueries({ queryKey: ["tg-updates"] });
     },
     onError: () => toast({ title: "Gagal unlink", variant: "destructive" }),
@@ -621,7 +847,7 @@ function KoneksiAmSection() {
         return;
       }
       setBulkLinksData({ results: data.results, expiresAt: data.expiresAt });
-      await refetchAms();
+      await refetchUsers();
     } catch {
       toast({ title: "Gagal generate link", variant: "destructive" });
     } finally {
@@ -629,20 +855,48 @@ function KoneksiAmSection() {
     }
   };
 
-  const allConnectedSelected = connectedAms.length > 0 && connectedAms.every(a => selectedIds.has(a.id));
+  const allConnectedSelected = connectedUsers.length > 0 && connectedUsers.every(u => selectedIds.has(u.id));
   const toggleSelectAll = () => {
-    if (allConnectedSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(connectedAms.map((a: any) => a.id)));
-    }
+    if (allConnectedSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(connectedUsers.map((u: any) => u.id)));
   };
+
+  const roleCfg = (role: string) => ROLE_CONFIG[role] ?? ROLE_CONFIG["ACCOUNT_MANAGER"];
 
   return (
     <div className="space-y-5">
+      {/* GenCodeModal */}
+      {genCodeResult && (
+        <GenCodeModal
+          code={genCodeResult.code}
+          link={genCodeResult.link}
+          nama={genCodeResult.nama}
+          expiresAt={genCodeResult.expiresAt}
+          onClose={() => setGenCodeResult(null)}
+        />
+      )}
+
+      {/* SelectUserModal */}
+      {showSelectUser && (
+        <SelectUserModal
+          users={allUsers || []}
+          onPick={(userId) => genLVMut.mutate(userId)}
+          onClose={() => setShowSelectUser(false)}
+          loading={genLVMut.isPending}
+        />
+      )}
+
+      {/* Bulk Links Modal */}
+      {bulkLinksData && (
+        <BulkLinksModal
+          data={bulkLinksData.results}
+          expiresAt={bulkLinksData.expiresAt}
+          onClose={() => setBulkLinksData(null)}
+        />
+      )}
+
       {/* Top: Pengguna Bot Telegram — collapsible */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
-        {/* Header row — always visible */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
           <button
             onClick={() => setShowSubscribers(v => !v)}
@@ -750,9 +1004,9 @@ function KoneksiAmSection() {
                                   onChange={e => setSelectedAmId(e.target.value)}
                                   className="text-[11px] px-1.5 py-1 border border-border rounded bg-background"
                                 >
-                                  <option value="">Pilih AM...</option>
-                                  {nonDgsAms.filter((a: any) => !a.telegramConnected).map((a: any) => (
-                                    <option key={a.id} value={a.id}>{a.nama}</option>
+                                  <option value="">Pilih...</option>
+                                  {nonDgsUsers.filter((u: any) => !u.telegramConnected).map((u: any) => (
+                                    <option key={u.id} value={u.id}>{u.nama}</option>
                                   ))}
                                 </select>
                                 <button
@@ -782,25 +1036,25 @@ function KoneksiAmSection() {
         )}
       </div>
 
-      {/* Bulk Links Modal */}
-      {bulkLinksData && (
-        <BulkLinksModal
-          data={bulkLinksData.results}
-          expiresAt={bulkLinksData.expiresAt}
-          onClose={() => setBulkLinksData(null)}
-        />
-      )}
-
-      {/* Bottom: AM list with connection status */}
+      {/* Bottom: User list with Telegram connection status — ALL roles */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="p-5 border-b border-border flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="font-display font-bold text-sm text-foreground">Status Koneksi per AM</h3>
+            <h3 className="font-display font-bold text-sm text-foreground">Status Verifikasi Telegram</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {connectedAms.length} dari {nonDgsAms.length} AM terhubung
+              {connectedUsers.length} dari {nonDgsUsers.length} terhubung · Semua role
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* New LV-XXXXXX code generation (permission-based) */}
+            <button
+              onClick={() => setShowSelectUser(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              Kode Verifikasi
+            </button>
+
             <button
               onClick={handleGenBulk}
               disabled={genBulkLoading}
@@ -819,10 +1073,10 @@ function KoneksiAmSection() {
                 Unlink Terpilih ({selectedIds.size})
               </button>
             )}
-            {connectedAms.length > 0 && selectedIds.size === 0 && (
+            {connectedUsers.length > 0 && selectedIds.size === 0 && (
               <button
                 onClick={() => {
-                  if (confirm(`Putuskan koneksi semua ${connectedAms.length} AM yang terhubung?`))
+                  if (confirm(`Putuskan koneksi semua ${connectedUsers.length} yang terhubung?`))
                     unlinkAllMut.mutate(undefined);
                 }}
                 disabled={unlinkAllMut.isPending}
@@ -832,17 +1086,17 @@ function KoneksiAmSection() {
                 Unlink Semua
               </button>
             )}
-            <BulkDownloadButton onRefresh={refetchAms} />
+            <BulkDownloadButton onRefresh={refetchUsers} />
           </div>
         </div>
+
         {/* Info strip */}
-        <div className="px-5 py-3 bg-primary/5 border-b border-primary/10 flex items-start gap-2">
-          <Link2 className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            <span className="font-semibold text-primary">Cara termudah:</span> Klik{" "}
-            <span className="font-semibold text-foreground">"Generate Semua Link"</span> → popup muncul → salin & bagikan ke AM.
-            AM cukup klik link, otomatis terhubung. Format kode:{" "}
-            <code className="text-[11px] bg-secondary px-1 py-0.5 rounded font-mono">LESAVI-NIK</code> · berlaku 24 jam.
+        <div className="px-5 py-3 bg-green-50 border-b border-green-100 flex items-start gap-2">
+          <Shield className="w-3.5 h-3.5 text-green-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-green-700 leading-relaxed">
+            <span className="font-semibold">Kode Verifikasi (LV-XXXXXX)</span> dibuat oleh ADMIN, OFFICER, atau MANAGER
+            dan berlaku 60 menit. Gunakan untuk menghubungkan akun Telegram pengguna ke sistem.
+            Link legacy <code className="text-[11px] bg-green-100 px-1 py-0.5 rounded font-mono">LESAVI-NIK</code> juga masih didukung.
           </p>
         </div>
 
@@ -851,42 +1105,96 @@ function KoneksiAmSection() {
             <thead className="bg-secondary/50 text-muted-foreground font-medium">
               <tr>
                 <th className="px-4 py-3 text-left w-8">
-                  {connectedAms.length > 0 && (
-                    <input
-                      type="checkbox"
-                      checked={allConnectedSelected}
-                      onChange={toggleSelectAll}
-                      className="w-3.5 h-3.5 accent-primary"
-                      title="Pilih semua yang terhubung"
-                    />
+                  {connectedUsers.length > 0 && (
+                    <input type="checkbox" checked={allConnectedSelected} onChange={toggleSelectAll}
+                      className="w-3.5 h-3.5 accent-primary" title="Pilih semua yang terhubung" />
                   )}
                 </th>
-                <th className="px-4 py-3 text-left text-xs">Nama AM</th>
+                <th className="px-4 py-3 text-left text-xs">Nama</th>
                 <th className="px-4 py-3 text-left text-xs">NIK</th>
+                <th className="px-4 py-3 text-left text-xs">Role</th>
                 <th className="px-4 py-3 text-left text-xs">Divisi</th>
                 <th className="px-4 py-3 text-left text-xs">Status</th>
                 <th className="px-4 py-3 text-left text-xs">Aksi / Link</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {nonDgsAms.map((am: any) => (
-                <AmRow
-                  key={am.id}
-                  am={am}
-                  genCodeMut={genCodeMut}
-                  unlinkMut={unlinkMut}
-                  linkMut={linkMut}
-                  botUsername={botUsername}
-                  selected={selectedIds.has(am.id)}
-                  onSelect={checked => {
-                    const s = new Set(selectedIds);
-                    if (checked) s.add(am.id); else s.delete(am.id);
-                    setSelectedIds(s);
-                  }}
-                />
-              ))}
-              {!nonDgsAms.length && (
-                <tr><td colSpan={6} className="px-5 py-10 text-center text-muted-foreground text-xs">Belum ada data AM</td></tr>
+              {nonDgsUsers.map((u: any) => {
+                const cfg = roleCfg(u.role);
+                return (
+                  <tr key={u.id} className="hover:bg-secondary/20">
+                    <td className="px-4 py-3">
+                      {u.telegramConnected && (
+                        <input type="checkbox" checked={selectedIds.has(u.id)}
+                          onChange={e => {
+                            const s = new Set(selectedIds);
+                            if (e.target.checked) s.add(u.id); else s.delete(u.id);
+                            setSelectedIds(s);
+                          }}
+                          className="w-3.5 h-3.5 accent-primary" />
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold text-muted-foreground shrink-0">
+                          {(u.nama || "?")[0]?.toUpperCase()}
+                        </div>
+                        <span className="font-semibold text-foreground">{u.nama}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{u.nik || "—"}</td>
+                    <td className="px-4 py-3">
+                      <span className={cn("text-[11px] font-bold px-1.5 py-0.5 rounded", cfg.bg, cfg.color)}>{cfg.label}</span>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{u.divisi}</td>
+                    <td className="px-4 py-3">
+                      {u.telegramConnected ? (
+                        <div>
+                          <span className="inline-flex items-center gap-1 text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
+                            <CheckCircle2 className="w-3 h-3" /> Terhubung
+                          </span>
+                          <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">ID: {u.telegramChatId}</p>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] bg-secondary text-muted-foreground px-2 py-0.5 rounded-full font-medium">
+                          <XCircle className="w-3 h-3" /> Belum
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1.5">
+                        {u.telegramConnected ? (
+                          <button
+                            onClick={() => unlinkMut.mutate(u.id)}
+                            className="flex items-center gap-1 text-xs text-destructive/70 hover:text-destructive font-medium w-fit"
+                          >
+                            <Unlink className="w-3 h-3" /> Putuskan
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            {/* LV-XXXXXX code generation button */}
+                            <button
+                              onClick={() => {
+                                genLVMut.mutate(u.id);
+                              }}
+                              disabled={genLVMut.isPending}
+                              className="flex items-center gap-1 text-[11px] text-green-600 font-semibold hover:text-green-700 disabled:opacity-50 w-fit"
+                              title="Buat Kode Verifikasi LV-XXXXXX"
+                            >
+                              <KeyRound className="w-3 h-3" />
+                              {genLVMut.isPending ? "..." : "Kode Verifikasi"}
+                            </button>
+                            {/* Legacy link generation */}
+                            <LegacyLinkButton user={u} botUsername={botUsername} refetch={refetchUsers} />
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {nonDgsUsers.length === 0 && (
+                <tr><td colSpan={7} className="px-5 py-10 text-center text-muted-foreground text-xs">Belum ada data pengguna</td></tr>
               )}
             </tbody>
           </table>
@@ -896,197 +1204,55 @@ function KoneksiAmSection() {
   );
 }
 
-function BulkDownloadButton({ onRefresh }: { onRefresh: () => void }) {
+// ── LegacyLinkButton — generates LESAVI-NIK legacy codes ────────────────────────
+function LegacyLinkButton({ user, botUsername, refetch }: { user: any; botUsername: string | null; refetch: () => void }) {
   const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
-
-  const handleDownload = async () => {
-    setLoading(true);
-    try {
-      const data = await apiFetch("/telegram/bulk-generate-codes", { method: "POST" });
-      if (!data.results?.length) {
-        toast({ title: "Semua AM sudah terhubung", description: "Tidak ada AM yang perlu dibuatkan kode verifikasi." });
-        return;
-      }
-
-      const header = "Nama AM,NIK,Divisi,Kode Verifikasi,Berlaku Sampai";
-      const rows = data.results.map((r: any) => {
-        const expiry = new Date(r.expiresAt).toLocaleString("id-ID", { hour12: false });
-        return `"${r.nama}","${r.nik}","${r.divisi}","${r.code}","${expiry}"`;
-      });
-      const csv = [header, ...rows].join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `kode-verifikasi-telegram-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      toast({ title: `${data.total} kode berhasil dibuat`, description: "File CSV telah diunduh. Bagikan kode kepada masing-masing AM." });
-      onRefresh();
-    } catch {
-      toast({ title: "Gagal generate kode", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <button
-      onClick={handleDownload}
-      disabled={loading}
-      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border text-foreground rounded-lg hover:bg-secondary/50 disabled:opacity-50 transition-colors"
-    >
-      <Download className={cn("w-3.5 h-3.5", loading && "animate-pulse")} />
-      {loading ? "Membuat kode..." : "Generate & Download CSV"}
-    </button>
-  );
-}
-
-function AmRow({ am, genCodeMut, unlinkMut, linkMut, botUsername, selected, onSelect }: any) {
-  const { toast } = useToast();
-  const [copied, setCopied] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [showManual, setShowManual] = useState(false);
-  const [manualChatId, setManualChatId] = useState("");
   const [magicLink, setMagicLink] = useState<string | null>(null);
-  const [genLinkLoading, setGenLinkLoading] = useState(false);
+  const [genLoading, setGenLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const copy = (text: string, isLink = false) => {
+  const copy = (text: string) => {
     navigator.clipboard.writeText(text);
-    if (isLink) { setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000); }
-    else { setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleGenLink = async () => {
-    setGenLinkLoading(true);
+  const handleGen = async () => {
+    setGenLoading(true);
     try {
-      const data = await apiFetch(`/telegram/gen-link/${am.id}`, { method: "POST" });
-      if (data.link) {
-        setMagicLink(data.link);
-      } else {
-        toast({ title: "Bot belum dikonfigurasi", description: "Atur token bot Telegram di halaman Pengaturan terlebih dahulu.", variant: "destructive" });
-      }
+      const data = await apiFetch(`/telegram/gen-link/${user.id}`, { method: "POST" });
+      if (data.link) setMagicLink(data.link);
+      else toast({ title: "Bot belum dikonfigurasi", description: "Atur token bot di halaman Pengaturan.", variant: "destructive" });
     } catch {
       toast({ title: "Gagal generate link", variant: "destructive" });
-    } finally {
-      setGenLinkLoading(false);
-    }
+    } finally { setGenLoading(false); }
   };
 
-  const isExpired = am.telegramCodeExpiry && new Date(am.telegramCodeExpiry) < new Date();
-  const effectiveMagicLink = magicLink ?? (am.telegramCode && !isExpired && botUsername ? `https://t.me/${botUsername}?start=${am.telegramCode}` : null);
+  const isExpired = user.telegramCodeExpiry && new Date(user.telegramCodeExpiry) < new Date();
+  const effectiveLink = magicLink ?? (user.telegramCode && !isExpired && botUsername ? `https://t.me/${botUsername}?start=${user.telegramCode}` : null);
+
+  if (effectiveLink) {
+    return (
+      <div className="flex items-center gap-1 max-w-[220px]">
+        <input readOnly value={effectiveLink} className="flex-1 text-[10px] font-mono px-1.5 py-1 border border-border rounded bg-secondary/50 truncate min-w-0" />
+        <button onClick={() => copy(effectiveLink)} className="shrink-0 text-primary hover:text-primary/80">
+          {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+        <a href={effectiveLink} target="_blank" rel="noreferrer" className="shrink-0 text-muted-foreground hover:text-foreground">
+          <ExternalLink className="w-3 h-3" />
+        </a>
+        <button onClick={() => { setMagicLink(null); refetch(); }} className="shrink-0 text-muted-foreground hover:text-foreground" title="Reset">
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <tr className="hover:bg-secondary/20">
-      <td className="px-4 py-3">
-        {am.telegramConnected && (
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={e => onSelect(e.target.checked)}
-            className="w-3.5 h-3.5 accent-primary"
-          />
-        )}
-      </td>
-      <td className="px-4 py-3 font-semibold text-foreground">{am.nama}</td>
-      <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{am.nik}</td>
-      <td className="px-4 py-3 text-muted-foreground text-xs">{am.divisi}</td>
-      <td className="px-4 py-3">
-        {am.telegramConnected ? (
-          <div>
-            <span className="inline-flex items-center gap-1 text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
-              <CheckCircle2 className="w-3 h-3" /> Terhubung
-            </span>
-            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">ID: {am.telegramChatId}</p>
-          </div>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-[11px] bg-secondary text-muted-foreground px-2 py-0.5 rounded-full font-medium">
-            <XCircle className="w-3 h-3" /> Belum
-          </span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex flex-col gap-1.5">
-          {am.telegramConnected ? (
-            <button
-              onClick={() => unlinkMut.mutate(am.id)}
-              className="flex items-center gap-1 text-xs text-destructive/70 hover:text-destructive font-medium w-fit"
-            >
-              <Unlink className="w-3 h-3" /> Putuskan
-            </button>
-          ) : (
-            <>
-              {/* Magic link row */}
-              {effectiveMagicLink ? (
-                <div className="flex items-center gap-1 max-w-[260px]">
-                  <input
-                    readOnly
-                    value={effectiveMagicLink}
-                    className="flex-1 text-[10px] font-mono px-1.5 py-1 border border-border rounded bg-secondary/50 truncate min-w-0"
-                  />
-                  <button
-                    onClick={() => copy(effectiveMagicLink, true)}
-                    className="shrink-0 text-primary hover:text-primary/80"
-                    title="Salin link"
-                  >
-                    {copiedLink ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                  <a href={effectiveMagicLink} target="_blank" rel="noreferrer" className="shrink-0 text-muted-foreground hover:text-foreground" title="Buka Telegram">
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              ) : (
-                <button
-                  onClick={handleGenLink}
-                  disabled={genLinkLoading}
-                  className="flex items-center gap-1 text-xs text-primary font-semibold hover:text-primary/80 disabled:opacity-50 w-fit"
-                >
-                  <Link2 className="w-3 h-3" /> {genLinkLoading ? "..." : "Generate Link"}
-                </button>
-              )}
-
-              {/* Code row */}
-              {am.telegramCode && !isExpired && (
-                <div className="flex items-center gap-1">
-                  <code className="text-[10px] font-bold bg-secondary px-1.5 py-0.5 rounded tracking-widest">{am.telegramCode}</code>
-                  <button onClick={() => copy(am.telegramCode)} className="text-muted-foreground hover:text-foreground">
-                    {copied ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-                  </button>
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                    <Clock className="w-2.5 h-2.5" />
-                    {format(new Date(am.telegramCodeExpiry), "HH:mm", { locale: idLocale })}
-                  </span>
-                </div>
-              )}
-
-              {/* Manual link row */}
-              {showManual ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    placeholder="Chat ID"
-                    value={manualChatId}
-                    onChange={e => setManualChatId(e.target.value)}
-                    className="text-xs px-2 py-1 border border-border rounded w-24"
-                  />
-                  <button
-                    onClick={() => { linkMut.mutate({ amId: am.id, chatId: manualChatId }); setShowManual(false); }}
-                    className="text-xs px-1.5 py-1 bg-primary text-white rounded"
-                  >OK</button>
-                  <button onClick={() => setShowManual(false)} className="text-xs text-muted-foreground">Batal</button>
-                </div>
-              ) : (
-                <button onClick={() => setShowManual(true)} className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-0.5 w-fit">
-                  <ChevronRight className="w-3 h-3" /> Manual Chat ID
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      </td>
-    </tr>
+    <button onClick={handleGen} disabled={genLoading}
+      className="flex items-center gap-1 text-[11px] text-primary font-semibold hover:text-primary/80 disabled:opacity-50 w-fit">
+      <Link2 className="w-3 h-3" /> {genLoading ? "..." : "Link"}
+    </button>
   );
 }
 
@@ -1144,12 +1310,12 @@ function RiwayatSection() {
   );
 }
 
-type MainTab = "kirim" | "koneksi" | "riwayat";
+type MainTab = "kirim" | "verifikasi" | "riwayat";
 
 const MAIN_TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
-  { id: "kirim", label: "Kirim Pesan", icon: <Send className="w-4 h-4" /> },
-  { id: "koneksi", label: "Koneksi AM", icon: <Users className="w-4 h-4" /> },
-  { id: "riwayat", label: "Riwayat Log", icon: <History className="w-4 h-4" /> },
+  { id: "kirim",     label: "Kirim Pesan",    icon: <Send    className="w-4 h-4" /> },
+  { id: "verifikasi", label: "Verifikasi Telegram", icon: <Shield className="w-4 h-4" /> },
+  { id: "riwayat",  label: "Riwayat Log",    icon: <History className="w-4 h-4" /> },
 ];
 
 export default function TelegramBot() {
@@ -1187,9 +1353,9 @@ export default function TelegramBot() {
       </div>
 
       {/* Tab content */}
-      {mainTab === "kirim" && <KirimPesanSection />}
-      {mainTab === "koneksi" && <KoneksiAmSection />}
-      {mainTab === "riwayat" && <RiwayatSection />}
+      {mainTab === "kirim"     && <KirimPesanSection />}
+      {mainTab === "verifikasi" && <VerifikasiSection />}
+      {mainTab === "riwayat"   && <RiwayatSection />}
     </div>
   );
 }

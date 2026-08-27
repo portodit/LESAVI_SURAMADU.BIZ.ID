@@ -6,13 +6,13 @@ import { runGSheetsSync, listAllSheets, syncSelectedSheets, extractSpreadsheetId
 const router: IRouter = Router();
 
 // ── Manual sync trigger (all auto-detected sheets) ─────────────────────────────
-router.post("/gsheets/sync", requireAuth, async (req, res): Promise<void> => {
+router.post("/sync", requireAuth, async (req, res): Promise<void> => {
   const result = await runGSheetsSync();
   res.json(result);
 });
 
 // ── Import selected sheets with explicit type ──────────────────────────────────
-router.post("/gsheets/sync-selected", requireAuth, async (req, res): Promise<void> => {
+router.post("/sync-selected", requireAuth, async (req, res): Promise<void> => {
   const { selections } = req.body as {
     selections: Array<{ title: string; sheetId: number; type: "funnel" | "activity" | "performance" }>;
   };
@@ -25,7 +25,7 @@ router.post("/gsheets/sync-selected", requireAuth, async (req, res): Promise<voi
 });
 
 // ── Preview all available sheets (with auto-detection hints) ───────────────────
-router.get("/gsheets/sheets", requireAuth, async (req, res): Promise<void> => {
+router.get("/sheets", requireAuth, async (req, res): Promise<void> => {
   const [settings] = await db.select().from(appSettingsTable);
   if (!settings?.gSheetsSpreadsheetId || !settings?.gSheetsApiKey) {
     res.status(400).json({ error: "Spreadsheet ID atau API Key belum dikonfigurasi" });
@@ -40,7 +40,7 @@ router.get("/gsheets/sheets", requireAuth, async (req, res): Promise<void> => {
 });
 
 // ── Last sync result ──────────────────────────────────────────────────────────
-router.get("/gsheets/sync-status", requireAuth, async (req, res): Promise<void> => {
+router.get("/sync-status", requireAuth, async (req, res): Promise<void> => {
   const [settings] = await db.select().from(appSettingsTable);
   if (!settings) { res.json({ configured: false }); return; }
   res.json({

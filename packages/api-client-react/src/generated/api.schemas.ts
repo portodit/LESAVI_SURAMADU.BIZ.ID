@@ -13,6 +13,106 @@ export interface ErrorResponse {
   error: string;
 }
 
+// ─── OTP Auth Schemas ────────────────────────────────────────────────────────
+
+export interface LoginSuccessResponse {
+  nextStep: "AUTHENTICATED";
+  id: number;
+  email: string;
+  role: string;
+  nama: string;
+  tipe?: string;
+}
+
+export interface LoginOtpRequiredResponse {
+  nextStep: "OTP_REQUIRED";
+  userId: number;
+  email: string;
+  nama: string;
+  role: string;
+}
+
+export interface LoginTelegramLinkRequiredResponse {
+  nextStep: "TELEGRAM_LINK_REQUIRED";
+  userId: number;
+  email: string;
+  nama: string;
+  role: string;
+}
+
+export interface LoginErrorResponse {
+  error: string;
+}
+
+export type LoginResponse =
+  | LoginSuccessResponse
+  | LoginOtpRequiredResponse
+  | LoginTelegramLinkRequiredResponse
+  | LoginErrorResponse;
+
+export interface OtpRequestBody {
+  userId: number;
+}
+
+export interface OtpRequestResponse {
+  challengeId: string;
+  expiresAt: string;
+}
+
+export interface OtpVerifyBody {
+  challengeId: string;
+  otp: string;
+  userId?: number;
+}
+
+export interface OtpResendResponse {
+  challengeId: string;
+  expiresAt: string;
+}
+
+export interface TelegramStatusResponse {
+  linked: boolean;
+  telegramUsername: string | null;
+  telegramChatId: string | null;
+}
+
+export interface PresentationLoginBody {
+  nik: string;
+}
+
+export interface PresentationOtpRequiredResponse {
+  nextStep: "OTP_REQUIRED";
+  userId: number;
+  nama: string;
+  challengeId: string;
+  expiresAt: string;
+}
+
+export interface PresentationTelegramLinkRequiredResponse {
+  nextStep: "TELEGRAM_LINK_REQUIRED";
+  userId: number;
+  nama: string;
+}
+
+export interface PresentationLoginErrorResponse {
+  error: string;
+}
+
+export type PresentationLoginResponse =
+  | PresentationOtpRequiredResponse
+  | PresentationTelegramLinkRequiredResponse
+  | PresentationLoginErrorResponse;
+
+export interface OfficerInfo {
+  id: number;
+  nama: string;
+  email: string | null;
+  role: string;
+  telegramUsername: string | null;
+  telegramDisplayName: string | null;
+  telegramConnected: boolean;
+}
+
 export interface SuccessResponse {
   message: string;
 }

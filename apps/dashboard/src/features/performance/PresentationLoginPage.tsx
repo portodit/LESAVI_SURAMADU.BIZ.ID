@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Loader2, CreditCard, XCircle } from "lucide-react";
+import { getPresentationSession } from "@/shared/hooks/use-presentation-auth";
 
 export default function PresentationLoginPage() {
   const [nik, setNik] = useState("");
@@ -68,9 +69,16 @@ export default function PresentationLoginPage() {
     return () => { if (resendRef.current) { clearInterval(resendRef.current); resendRef.current = null; } };
   }, [resendCooldown > 0]);
 
-  // If already logged into presentation (has pres_sid cookie), redirect away
+  // If already logged into presentation, redirect to /presentation
   useEffect(() => {
+    // Check cookie session
     if (document.cookie.includes("pres_sid")) {
+      window.location.href = "/presentation";
+      return;
+    }
+    // Check localStorage presentation token
+    const session = getPresentationSession();
+    if (session?.presentationToken) {
       window.location.href = "/presentation";
       return;
     }
@@ -206,7 +214,7 @@ export default function PresentationLoginPage() {
     setIsResending(true);
     try {
       const apiBase = import.meta.env.VITE_API_URL ?? "";
-      const res = await fetch(`${apiBase}/api/auth/otp/resend`, {
+      const res = await fetch(`${apiBase}/api/auth/presentation/resend-otp`, {
         method: "POST",
         credentials: "include",
       });

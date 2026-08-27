@@ -13,6 +13,7 @@ export interface PerformanceRow {
   divisi: string | null;
   divisiCc: string | null;
   witelAm: string | null;
+  witelCc: string | null;
   levelAm: string | null;
   tahun: number | null;
   bulan: number | null;
@@ -68,7 +69,8 @@ const COLUMNS: FilterCol[] = [
   { field: "nik", label: "NIK", width: "90px", sortable: true, editable: true },
   { field: "namaAm", label: "Nama AM", width: "140px", sortable: true, editable: true },
   { field: "levelAm", label: "Level AM", width: "80px", sortable: true, editable: true },
-  { field: "witelAm", label: "Witel", width: "90px", sortable: true, editable: true },
+  { field: "witelAm", label: "Witel AM", width: "100px", sortable: true, editable: true },
+  { field: "witelCc", label: "Witel CC", width: "100px", sortable: true, editable: true },
   { field: "divisi", label: "Divisi AM", width: "70px", sortable: true, editable: true },
   { field: "divisiCc", label: "Divisi CC", width: "70px", sortable: true, editable: true },
   { field: "targetRevenue", label: "T. Revenue", width: "110px", align: "right", sortable: true, editable: true, editableType: "number" },
@@ -586,7 +588,12 @@ export default function PerformanceDetailTable({ rows: initialRows, importId }: 
                               "text-red-700 bg-red-50 border-red-200")}>{r.statusWarna?.toUpperCase()}</span>
                           ) : (
                             <>
-                              <span className="px-1 truncate block tabular-nums">{displayValue(r, col)}</span>
+                              <span className={cn("px-1 truncate block tabular-nums", col.field === "nik" && !((r as any)[col.field]) ? "text-orange-500 font-semibold bg-orange-50 border border-orange-200 rounded px-0.5" : "")}>
+                                {displayValue(r, col)}
+                              </span>
+                              {col.field === "nik" && !((r as any)[col.field]) && (
+                                <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-orange-400 border border-white shadow" title="NIK kosong — perlu diisi manual" />
+                              )}
                               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                 <div className="absolute right-1 top-1/2 -translate-y-1/2">
                                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground/30">
@@ -711,8 +718,8 @@ export default function PerformanceDetailTable({ rows: initialRows, importId }: 
   );
 }
 
-// Lazy import Loader2 for the saving spinner
-function Loader2({ className }: { className?: string }) {
+// Local spinner component
+function LocalSpinner({ className }: { className?: string }) {
   return (
     <svg className={cn("animate-spin", className)} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

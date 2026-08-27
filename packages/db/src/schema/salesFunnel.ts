@@ -12,6 +12,8 @@ export const salesFunnelTable = pgTable("sales_funnel", {
   divisi: text("divisi").notNull(),
   segmen: text("segmen"),
   witel: text("witel"),
+  witelAm: text("witel_am"),
+  witelCc: text("witel_cc"),
   statusF: text("status_f"),
   proses: text("proses"),
   statusProyek: text("status_proyek"),

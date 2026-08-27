@@ -99,6 +99,182 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /auth/otp/request:
+    post:
+      operationId: otpRequest
+      tags: [auth]
+      summary: Request OTP for login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpRequestBody"
+      responses:
+        "200":
+          description: OTP request successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpChallengeResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/otp/verify:
+    post:
+      operationId: otpVerify
+      tags: [auth]
+      summary: Verify OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyBody"
+      responses:
+        "200":
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/otp/resend:
+    post:
+      operationId: otpResend
+      tags: [auth]
+      summary: Resend OTP
+      responses:
+        "200":
+          description: OTP resent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpChallengeResponse"
+        "400":
+          description: No active challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/officers:
+    get:
+      operationId: listOfficers
+      tags: [auth]
+      summary: List officers with Telegram connected
+      responses:
+        "200":
+          description: List of officers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OfficerProfile"
+
+  /auth/presentation/request-otp:
+    post:
+      operationId: presentationRequestOtp
+      tags: [auth]
+      summary: "Presentation mode: request OTP by NIK"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresentationLoginBody"
+      responses:
+        "200":
+          description: OTP request result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresentationLoginResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: NIK not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/presentation/verify-otp:
+    post:
+      operationId: presentationVerifyOtp
+      tags: [auth]
+      summary: "Presentation mode: verify OTP"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyBody"
+      responses:
+        "200":
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/presentation/session:
+    post:
+      operationId: validatePresentationSession
+      tags: [auth]
+      summary: "Validate presentation session token"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresentationSessionBody"
+      responses:
+        "200":
+          description: Session valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Session invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: invalidatePresentationSession
+      tags: [auth]
+      summary: "Logout from presentation mode"
+      responses:
+        "200":
+          description: Session invalidated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
   /am:
     get:
       operationId: listAccountManagers
@@ -601,13 +777,108 @@ components:
     AuthResponse:
       type: object
       properties:
+        error:
+          type: ["string", "null"]
         id:
           type: integer
         email:
           type: string
         role:
           type: string
+        nextStep:
+          type: string
+          enum: [AUTHENTICATED, OTP_REQUIRED, TELEGRAM_LINK_REQUIRED]
+        userId:
+          type: integer
+        nama:
+          type: string
+        tipe:
+          type: ["string", "null"]
+        telegramConnected:
+          type: boolean
+        presentationToken:
+          type: string
+          description: "Server-validated session token for presentation mode. Present only on successful presentation OTP verification."
       required: [id, email, role]
+
+    OtpRequestBody:
+      type: object
+      properties:
+        userId:
+          type: integer
+      required: [userId]
+
+    OtpChallengeResponse:
+      type: object
+      properties:
+        challengeId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required: [challengeId, expiresAt]
+
+    OtpVerifyBody:
+      type: object
+      properties:
+        challengeId:
+          type: string
+        otp:
+          type: string
+        userId:
+          type: ["integer", "null"]
+      required: [challengeId, otp]
+
+    PresentationSessionBody:
+      type: object
+      properties:
+        presentationToken:
+          type: string
+      required: [presentationToken]
+
+    PresentationLoginBody:
+      type: object
+      properties:
+        nik:
+          type: string
+      required: [nik]
+
+    PresentationLoginResponse:
+      type: object
+      properties:
+        nextStep:
+          type: string
+          enum: [OTP_REQUIRED, TELEGRAM_LINK_REQUIRED]
+        userId:
+          type: integer
+        nama:
+          type: string
+        challengeId:
+          type: ["string", "null"]
+        expiresAt:
+          type: ["string", "null"]
+        error:
+          type: ["string", "null"]
+      required: [nextStep, userId, nama]
+
+    OfficerProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        nama:
+          type: string
+        email:
+          type: ["string", "null"]
+        role:
+          type: string
+        telegramUsername:
+          type: ["string", "null"]
+        telegramDisplayName:
+          type: ["string", "null"]
+        telegramConnected:
+          type: ["string", "null"]
+      required: [id, nama, role]
 
     AccountManager:
       type: object

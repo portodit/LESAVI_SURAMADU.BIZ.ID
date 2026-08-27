@@ -315,6 +315,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-foreground truncate">{(user as any).nama || "Officer"}</p>
+              <p className="text-[10px] text-primary font-medium truncate capitalize">{user.role || "Officer"}</p>
               <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
             </div>
           </div>

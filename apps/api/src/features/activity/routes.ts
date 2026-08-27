@@ -12,7 +12,7 @@ function isKpiLabel(label: string | null | undefined): boolean {
 }
 
 // ── GET /api/activity/snapshots ────────────────────────────────────────────────
-router.get("/activity/snapshots", requireAuth, async (req, res): Promise<void> => {
+router.get("/snapshots", requireAuth, async (req, res): Promise<void> => {
   const snaps = await db
     .select()
     .from(dataImportsTable)
@@ -30,7 +30,7 @@ router.get("/activity/snapshots", requireAuth, async (req, res): Promise<void> =
 });
 
 // ── GET /api/activity ──────────────────────────────────────────────────────────
-router.get("/activity", requireAuth, async (req, res): Promise<void> => {
+router.get("/", requireAuth, async (req, res): Promise<void> => {
   const { year, month, divisi, import_id } = req.query;
 
   const [allActs, ams, settingsArr, activityImports] = await Promise.all([
@@ -138,7 +138,7 @@ router.get("/activity", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
-router.get("/activity/:nik", requireAuth, async (req, res): Promise<void> => {
+router.get("/:nik", requireAuth, async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.nik) ? req.params.nik[0] : req.params.nik;
   const { year, month } = req.query;
 

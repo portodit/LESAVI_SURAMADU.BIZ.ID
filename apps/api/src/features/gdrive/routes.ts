@@ -49,7 +49,7 @@ function isSupportedFile(name: string, mimeType: string): boolean {
 }
 
 // ── GET /api/gdrive/list?type=performance ─────────────────────────────────────
-router.get("/gdrive/list", requireAuth, async (req, res): Promise<void> => {
+router.get("/list", requireAuth, async (req, res): Promise<void> => {
   const { type } = req.query;
   const folderKey = DRIVE_FOLDER_KEYS[String(type)];
   if (!folderKey) { res.status(400).json({ error: "type tidak valid" }); return; }
@@ -74,7 +74,7 @@ router.get("/gdrive/list", requireAuth, async (req, res): Promise<void> => {
 });
 
 // ── POST /api/gdrive/sync?type=performance ────────────────────────────────────
-router.post("/gdrive/sync", requireAuth, async (req, res): Promise<void> => {
+router.post("/sync", requireAuth, async (req, res): Promise<void> => {
   const { type } = req.query;
   const { fileId: explicitFileId, snapshotDate: snapshotDateBodyOverride, sheetName } = req.body;
   const folderKey = DRIVE_FOLDER_KEYS[String(type)];
@@ -131,7 +131,7 @@ router.post("/gdrive/sync", requireAuth, async (req, res): Promise<void> => {
 });
 
 // ── GET /api/gdrive/read-logs — riwayat baca folder ──────────────────────────
-router.get("/gdrive/read-logs", requireAuth, async (req, res): Promise<void> => {
+router.get("/read-logs", requireAuth, async (req, res): Promise<void> => {
   const { type, limit: limitRaw } = req.query;
   const limit = Math.min(Number(limitRaw) || 50, 200);
 
@@ -153,7 +153,7 @@ router.get("/gdrive/read-logs", requireAuth, async (req, res): Promise<void> => 
 });
 
 // ── POST /api/gdrive/check-now?type=all — cek semua folder sekarang ───────────
-router.post("/gdrive/check-now", requireAuth, async (req, res): Promise<void> => {
+router.post("/check-now", requireAuth, async (req, res): Promise<void> => {
   const { type } = req.query;
   const types = (type && type !== "all")
     ? [String(type) as "performance" | "funnel" | "activity" | "target"]

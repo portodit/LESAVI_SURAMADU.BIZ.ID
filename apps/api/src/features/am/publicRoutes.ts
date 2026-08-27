@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 
-router.get("/public/am/:slug", async (req, res): Promise<void> => {
+router.get("/am/:slug", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.slug) ? req.params.slug[0] : req.params.slug;
   const { nik } = req.query;
 

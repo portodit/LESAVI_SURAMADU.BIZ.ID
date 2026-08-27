@@ -9,6 +9,7 @@ export const performanceDataTable = pgTable("performance_data", {
   divisi: text("divisi").notNull(),  // DIVISI_AM value (DPS/DSS/DGS)
   divisiCc: text("divisi_cc"),       // DIVISI_CC value — kategori customer (DPS/DSS)
   witelAm: text("witel_am"),
+  witelCc: text("witel_cc"),
   levelAm: text("level_am"),
   tahun: integer("tahun").notNull(),
   bulan: integer("bulan").notNull(),

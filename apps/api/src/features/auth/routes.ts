@@ -3,10 +3,13 @@ import crypto from "crypto";
 import { db, accountManagersTable, presentationSessionsTable } from "@workspace/db";
 import { eq, or, inArray } from "drizzle-orm";
 import { comparePassword, requireAuth, logAuthEvent, getClientIp } from "../../shared/auth";
-import { requestOtp, verifyOtp, resendOtp, getPendingUserInfo } from "./otp";
+import { requestOtp, verifyOtp, resendOtp, getPendingUserInfo, requestOtpPresentation, verifyOtpPresentation } from "./otp";
 
-// ─── Login handler (used by both /auth/login and /api/auth/login) ─────────────
-async function handleLogin(req: any, res: any): Promise<void> {
+// ─── Dashboard Auth Router (uses connect.sid) ──────────────────────────────────
+// All routes here go through the dashboard session middleware.
+const dashboardAuthRouter: IRouter = Router();
+
+dashboardAuthRouter.post("/login", async (req: any, res: any): Promise<void> => {
   const { email, password } = req.body;
   if (!email || !password) {
     res.status(200).json({ error: "Email/NIK dan password wajib diisi" });
@@ -62,7 +65,6 @@ async function handleLogin(req: any, res: any): Promise<void> {
     status: "SUCCESS",
   });
 
-  // ── Admin bypass: create session directly (no OTP) ──────────────────────────
   if (user.nik === "160203") {
     const session = (req as any).session;
     session.userId = user.id;
@@ -70,8 +72,6 @@ async function handleLogin(req: any, res: any): Promise<void> {
     session.userRole = user.role;
     session.userNama = user.nama;
     session.userTipe = user.tipe ?? null;
-    // Wait for session to be persisted to DB BEFORE sending response.
-    // Without this, cookie may not be set in browser before the next request.
     await new Promise<void>((resolve) => {
       session.save((err: any) => { resolve(); });
     });
@@ -86,7 +86,6 @@ async function handleLogin(req: any, res: any): Promise<void> {
     return;
   }
 
-  // Check Telegram linking status
   if (!user.telegramChatId) {
     res.json({
       nextStep: "TELEGRAM_LINK_REQUIRED",
@@ -98,7 +97,6 @@ async function handleLogin(req: any, res: any): Promise<void> {
     return;
   }
 
-  // ACCOUNT_MANAGER cannot login to dashboard — they must use /presentation/login
   if (user.role === "ACCOUNT_MANAGER") {
     res.status(200).json({
       error: "Akun Manager tidak dapat login di halaman ini. Silakan gunakan halaman login performa di /presentation/login.",
@@ -106,8 +104,6 @@ async function handleLogin(req: any, res: any): Promise<void> {
     return;
   }
 
-  // Telegram linked — return OTP_REQUIRED state
-  // Frontend will call POST /auth/otp/request to trigger OTP delivery
   res.json({
     nextStep: "OTP_REQUIRED",
     userId: user.id,
@@ -115,18 +111,10 @@ async function handleLogin(req: any, res: any): Promise<void> {
     nama: user.nama,
     role: user.role,
   });
-}
+});
 
-// ─── Router setup ──────────────────────────────────────────────────────────────
-const router: IRouter = Router();
-
-// This router is mounted at /api in routes/index.ts,
-// so this route handles GET/POST /api/auth/*
-router.post("/auth/login", handleLogin);
-
-// ─── POST /auth/logout ────────────────────────────────────────────────────────
-router.post("/auth/logout", (req, res): void => {
-  const session = (req as any).session;
+dashboardAuthRouter.post("/logout", (req: any, res: any): void => {
+  const session = req.session;
   const userId = session?.userId;
 
   if (userId) {
@@ -140,14 +128,13 @@ router.post("/auth/logout", (req, res): void => {
     }).catch(() => {});
   }
 
-  (req as any).session.destroy(() => {
+  req.session.destroy(() => {
     res.json({ message: "Logged out" });
   });
 });
 
-// ─── GET /auth/me ─────────────────────────────────────────────────────────────
-router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
-  const session = (req as any).session;
+dashboardAuthRouter.get("/me", requireAuth, async (req: any, res: any): Promise<void> => {
+  const session = req.session;
   res.json({
     id: session.userId,
     email: session.userEmail,
@@ -158,10 +145,7 @@ router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
-// ─── POST /auth/otp/request ──────────────────────────────────────────────────
-// Requires userId body param. Stores challenge in session.
-// Should be called by frontend AFTER receiving OTP_REQUIRED from login.
-router.post("/auth/otp/request", async (req, res): Promise<void> => {
+dashboardAuthRouter.post("/otp/request", async (req: any, res: any): Promise<void> => {
   const { userId } = req.body;
   if (!userId || typeof userId !== "number") {
     res.status(400).json({ error: "userId diperlukan" });
@@ -170,7 +154,6 @@ router.post("/auth/otp/request", async (req, res): Promise<void> => {
 
   try {
     const result = await requestOtp(userId, req);
-
     await logAuthEvent({
       userId,
       eventType: "OTP_REQUESTED",
@@ -180,7 +163,6 @@ router.post("/auth/otp/request", async (req, res): Promise<void> => {
       status: "SUCCESS",
       metadata: { challengeId: result.challengeId },
     });
-
     res.json({
       challengeId: result.challengeId,
       expiresAt: result.expiresAt.toISOString(),
@@ -199,8 +181,7 @@ router.post("/auth/otp/request", async (req, res): Promise<void> => {
   }
 });
 
-// ─── POST /auth/otp/verify ────────────────────────────────────────────────────
-router.post("/auth/otp/verify", async (req, res): Promise<void> => {
+dashboardAuthRouter.post("/otp/verify", async (req: any, res: any): Promise<void> => {
   const { challengeId, otp } = req.body;
   if (!challengeId || !otp) {
     res.status(400).json({ error: "challengeId dan OTP wajib diisi" });
@@ -212,7 +193,7 @@ router.post("/auth/otp/verify", async (req, res): Promise<void> => {
     return;
   }
 
-  const session = (req as any).session;
+  const session = req.session;
   const pendingUserId = session?.pendingUserId;
 
   const result = await verifyOtp(String(challengeId), String(otp), req);
@@ -232,7 +213,6 @@ router.post("/auth/otp/verify", async (req, res): Promise<void> => {
     return;
   }
 
-  // verifyOtp already created the session
   await logAuthEvent({
     userId: session.userId,
     eventType: "LOGIN_SUCCESS",
@@ -253,9 +233,8 @@ router.post("/auth/otp/verify", async (req, res): Promise<void> => {
   });
 });
 
-// ─── POST /auth/otp/resend ────────────────────────────────────────────────────
-router.post("/auth/otp/resend", async (req, res): Promise<void> => {
-  const session = (req as any).session;
+dashboardAuthRouter.post("/otp/resend", async (req: any, res: any): Promise<void> => {
+  const session = req.session;
   if (!session.pendingUserId) {
     res.status(400).json({ error: "Tidak ada tantangan aktif. Silakan mulai proses login dari awal." });
     return;
@@ -272,8 +251,7 @@ router.post("/auth/otp/resend", async (req, res): Promise<void> => {
   }
 });
 
-// ─── GET /auth/telegram/status ─────────────────────────────────────────────────
-router.get("/auth/telegram/status", requireAuth, async (req, res): Promise<void> => {
+dashboardAuthRouter.get("/telegram/status", requireAuth, async (req: any, res: any): Promise<void> => {
   const info = await getPendingUserInfo(req);
   if (!info) {
     res.json({ linked: false, telegramUsername: null, telegramChatId: null });
@@ -286,9 +264,43 @@ router.get("/auth/telegram/status", requireAuth, async (req, res): Promise<void>
   });
 });
 
-// ─── POST /auth/presentation/request-otp ───────────────────────────────────────
-// For presentation login: takes NIK, looks up user, sends OTP if Telegram linked
-router.post("/auth/presentation/request-otp", async (req, res): Promise<void> => {
+dashboardAuthRouter.get("/officers", async (req: any, res: any): Promise<void> => {
+  const officers = await db
+    .select({
+      id: accountManagersTable.id,
+      nama: accountManagersTable.nama,
+      email: accountManagersTable.email,
+      role: accountManagersTable.role,
+      telegramUsername: accountManagersTable.telegramUsername,
+      telegramDisplayName: accountManagersTable.telegramDisplayName,
+      telegramConnected: accountManagersTable.telegramChatId,
+    })
+    .from(accountManagersTable)
+    .where(
+      inArray(accountManagersTable.role, ["ADMIN", "MANAGER", "OFFICER"])
+    )
+    .orderBy(accountManagersTable.nama);
+
+  const withTelegram = officers.filter(o => o.telegramConnected);
+  res.json(withTelegram);
+});
+
+export { dashboardAuthRouter };
+
+// ─── Presentation Auth Router (COMPLETELY SESSIONLESS) ────────────────────────
+// IMPORTANT: This router does NOT use express-session at all. All auth state is
+// stored in the DB (otpChallengesTable, presentationSessionsTable). This ensures
+// zero interference with the dashboard session (connect.sid).
+//
+// The pres_sid cookie is set to HttpOnly with SameSite=Lax but is never read
+// or written by these handlers. It exists only as a route indicator.
+//
+// Cookie behavior: browsers send connect.sid + pres_sid together. The browser
+// stores pres_sid but our code NEVER reads it — we use DB-backed tokens instead.
+const presentationAuthRouter: IRouter = Router();
+
+// POST /api/auth/presentation/request-otp
+presentationAuthRouter.post("/request-otp", async (req: any, res: any): Promise<void> => {
   const { nik } = req.body;
   if (!nik) {
     res.status(400).json({ error: "NIK wajib diisi" });
@@ -332,7 +344,8 @@ router.post("/auth/presentation/request-otp", async (req, res): Promise<void> =>
   }
 
   try {
-    const result = await requestOtp(user.id, req);
+    // Sessionless OTP — stores state in DB only, no req.session involved
+    const result = await requestOtpPresentation(user.id);
     res.json({
       nextStep: "OTP_REQUIRED",
       userId: user.id,
@@ -345,9 +358,12 @@ router.post("/auth/presentation/request-otp", async (req, res): Promise<void> =>
   }
 });
 
-// ─── POST /auth/presentation/verify-otp ──────────────────────────────────────
-router.post("/auth/presentation/verify-otp", async (req, res): Promise<void> => {
+// POST /api/auth/presentation/verify-otp
+// Sessionless: reads challenge from DB, creates presentation token in DB.
+// Does NOT touch express-session or any cookie — completely isolated.
+presentationAuthRouter.post("/verify-otp", async (req: any, res: any): Promise<void> => {
   const { challengeId, otp, userId } = req.body;
+
   if (!challengeId || !otp) {
     res.status(400).json({ error: "challengeId dan OTP wajib diisi" });
     return;
@@ -358,72 +374,59 @@ router.post("/auth/presentation/verify-otp", async (req, res): Promise<void> => 
     return;
   }
 
-  const session = (req as any).session;
-  const pendingUserId = session?.pendingUserId;
-
-  // Defensive: if userId from body doesn't match session, reject
-  if (userId && pendingUserId && Number(userId) !== pendingUserId) {
-    res.status(401).json({ error: "User tidak valid. Silakan mulai login ulang." });
-    return;
-  }
-
-  const result = await verifyOtp(String(challengeId), String(otp), req);
+  // userId is optional — the challengeId in DB already identifies the user
+  const result = await verifyOtpPresentation(String(challengeId), String(otp), userId ? Number(userId) : undefined);
 
   if (!result.success) {
     await logAuthEvent({
-      userId: pendingUserId ?? null,
+      userId: Number(userId),
       eventType: "OTP_FAILED",
       loginMethod: "NIK_PRESENTATION",
       challengeId: String(challengeId),
       ipAddress: getClientIp(req),
       userAgent: req.headers["user-agent"],
       status: "FAILED",
-      failureReason: result.error ?? "INVALID_OTP",
+      failureReason: result.error,
     });
     res.status(401).json({ error: result.error, locked: result.locked });
     return;
   }
 
   await logAuthEvent({
-    userId: session.userId,
+    userId: result.userId,
     eventType: "LOGIN_SUCCESS",
     loginMethod: "NIK_PRESENTATION",
     challengeId: String(challengeId),
     ipAddress: getClientIp(req),
     userAgent: req.headers["user-agent"],
-    deviceId: session.deviceId,
     status: "SUCCESS",
   });
 
-  // Generate presentation token and store in DB (not session) for independent session management
+  // Create presentation token in DB — this is what the frontend stores in localStorage
   const presentationToken = crypto.randomBytes(24).toString("base64url");
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
   await db.insert(presentationSessionsTable).values({
     token: presentationToken,
-    userId: session.userId,
-    userNik: session.userNik ?? null,
-    userNama: session.userNama,
-    userRole: session.userRole,
+    userId: result.userId,
+    userNik: result.nik,
+    userNama: result.nama,
+    userRole: result.role,
     expiresAt,
   }).onConflictDoNothing();
 
   res.json({
-    id: session.userId,
-    nama: session.userNama,
-    role: session.userRole,
+    id: result.userId,
+    nama: result.nama,
+    role: result.role,
     presentationToken,
   });
 });
 
-// ─── POST /auth/presentation/session ────────────────────────────────────────────
-// Validates the presentation session token from DB. Returns 200 + user info if valid, 401 otherwise.
-router.post("/auth/presentation/session", async (req, res): Promise<void> => {
+// POST /api/auth/presentation/session — validates localStorage token from DB
+presentationAuthRouter.post("/session", async (req: any, res: any): Promise<void> => {
   const { presentationToken } = req.body;
-  const session = (req as any).session;
-  console.log(`[/presentation/session] token=${presentationToken?.slice(0,8)} sessionId=${session?.id} userId=${session?.userId}`);
   if (!presentationToken) {
-    console.log("[/presentation/session] no token in body");
     res.status(401).json({ error: "Session tidak ditemukan. Silakan login ulang." });
     return;
   }
@@ -433,22 +436,17 @@ router.post("/auth/presentation/session", async (req, res): Promise<void> => {
     .from(presentationSessionsTable)
     .where(eq(presentationSessionsTable.token, presentationToken));
 
-  console.log(`[/presentation/session] DB lookup:`, presSession ? `userId=${presSession.userId} nama=${presSession.userNama}` : "NOT FOUND");
-
   if (!presSession) {
-    console.log("[/presentation/session] token not in DB");
     res.status(401).json({ error: "Session tidak valid atau sudah kedaluwarsa. Silakan login ulang." });
     return;
   }
 
   if (new Date(presSession.expiresAt).getTime() < Date.now()) {
-    console.log("[/presentation/session] token expired");
     await db.delete(presentationSessionsTable).where(eq(presentationSessionsTable.token, presentationToken));
     res.status(401).json({ error: "Session sudah kedaluwarsa. Silakan login ulang." });
     return;
   }
 
-  console.log("[/presentation/session] VALID");
   res.json({
     id: presSession.userId,
     nama: presSession.userNama,
@@ -457,9 +455,27 @@ router.post("/auth/presentation/session", async (req, res): Promise<void> => {
   });
 });
 
-// ─── DELETE /auth/presentation/session ────────────────────────────────────────
-// Logs out from presentation mode — deletes the token from DB.
-router.delete("/auth/presentation/session", async (req, res): Promise<void> => {
+// POST /api/auth/presentation/resend-otp
+presentationAuthRouter.post("/resend-otp", async (req: any, res: any): Promise<void> => {
+  const { userId } = req.body;
+  if (!userId) {
+    res.status(400).json({ error: "userId wajib diisi" });
+    return;
+  }
+
+  try {
+    const result = await requestOtpPresentation(Number(userId));
+    res.json({
+      challengeId: result.challengeId,
+      expiresAt: result.expiresAt.toISOString(),
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/auth/presentation/session — logs out from presentation
+presentationAuthRouter.delete("/session", async (req: any, res: any): Promise<void> => {
   const { presentationToken } = req.body;
   if (presentationToken) {
     await db.delete(presentationSessionsTable).where(eq(presentationSessionsTable.token, presentationToken));
@@ -467,30 +483,4 @@ router.delete("/auth/presentation/session", async (req, res): Promise<void> => {
   res.json({ success: true });
 });
 
-// ─── GET /auth/officers ────────────────────────────────────────────────────────
-// Lists ADMIN/MANAGER/OFFICER who have Telegram connected.
-// Public endpoint — used on Telegram linking page (before user is authenticated).
-router.get("/auth/officers", async (req, res): Promise<void> => {
-  const officers = await db
-    .select({
-      id: accountManagersTable.id,
-      nama: accountManagersTable.nama,
-      email: accountManagersTable.email,
-      role: accountManagersTable.role,
-      telegramUsername: accountManagersTable.telegramUsername,
-      telegramDisplayName: accountManagersTable.telegramDisplayName,
-      telegramConnected: accountManagersTable.telegramChatId,
-    })
-    .from(accountManagersTable)
-    .where(
-      inArray(accountManagersTable.role, ["ADMIN", "MANAGER", "OFFICER"])
-    )
-    .orderBy(accountManagersTable.nama);
-
-  // Only return officers who are active AND have Telegram connected
-  const withTelegram = officers.filter(o => o.telegramConnected);
-
-  res.json(withTelegram);
-});
-
-export default router;
+export default presentationAuthRouter;

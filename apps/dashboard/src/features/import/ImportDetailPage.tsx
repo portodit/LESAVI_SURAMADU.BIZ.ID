@@ -26,8 +26,14 @@ function formatSnapshotTitle(createdAt: string, type: string, snapshotDate?: str
 
 function formatPeriod(period: string) {
   const MONTHS = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
-  const [y, m] = period.split("-");
-  return `${MONTHS[parseInt(m, 10) - 1] || m} ${y}`;
+  const clean = period?.replace("-", "") || period || "";
+  if (clean.length === 6) {
+    const y = clean.slice(0, 4);
+    const m = clean.slice(4, 6);
+    return `${MONTHS[parseInt(m, 10) - 1] || m} ${y}`;
+  }
+  const [y, m] = (period || "").split("-");
+  return `${MONTHS[parseInt(m, 10) - 1] || m || ""} ${y || ""}`;
 }
 
 // ─── Main Detail Page ──────────────────────────────────────────────────────────

@@ -477,7 +477,7 @@ export default function PerformaVis() {
       // When divisi filter is active, restrict CM rows to matching divisi only
       const activeCmRows = (filterDivisi === "all" || filterDivisi === "LESA")
         ? cmRows
-        : cmRows.filter((cr: any) => matchesDivisiPerforma(cr.divisi, filterDivisi));
+        : cmRows.filter((cr: any) => matchesDivisiPerforma(cr.divisi, filterDivisi, cr.divisi_cc));
 
       // Combine CM target/real — only from activeCmRows (respects divisi filter)
       let effectiveCmTarget = 0;
@@ -492,7 +492,7 @@ export default function PerformaVis() {
       let effectiveYtdTarget = 0;
       let effectiveYtdReal = 0;
       const ytdRows = filteredRows.filter((r: any) => r.nik === nik &&
-        (filterDivisi === "all" || filterDivisi === "LESA" || matchesDivisiPerforma(r.divisi, filterDivisi))
+        (filterDivisi === "all" || filterDivisi === "LESA" || matchesDivisiPerforma(r.divisi, filterDivisi, r.divisi_cc))
       );
       for (const row of ytdRows) {
         const sums = getTyped(row, filterTipeRevenue);
@@ -529,7 +529,7 @@ export default function PerformaVis() {
 
     // Apply divisi filter — multi-divisi AMs appear when any of their divisi matches
     if (filterDivisi !== "all") result = result.filter(r =>
-      (r.divisiAll as string[]).some((d: string) => matchesDivisiPerforma(d, filterDivisi))
+      (r.divisiAll as string[]).some((d: string) => matchesDivisiPerforma(d, filterDivisi, r.divisi_cc))
     );
     if (filterNamaAms.size > 0) result = result.filter(r => filterNamaAms.has(r.namaAm));
 
@@ -597,7 +597,7 @@ export default function PerformaVis() {
       const mNum = idx + 1;
       let rows = (allPerfs as any[]).filter(p =>
         String(p.tahun) === cmYear && p.bulan === mNum &&
-        matchesDivisiPerforma(p.divisi, filterDivisi) &&
+        matchesDivisiPerforma(p.divisi, filterDivisi, p.divisi_cc) &&
         (filterSnapshotId === null || p.importId === filterSnapshotId)
       );
       const target = rows.reduce((s, p) => s + p.targetRevenue, 0);
@@ -622,7 +622,7 @@ export default function PerformaVis() {
       (allPerfs as any[])
         .filter(p =>
           p.tahun === y && p.bulan === m &&
-          matchesDivisiPerforma(p.divisi, filterDivisi)
+          matchesDivisiPerforma(p.divisi, filterDivisi, p.divisi_cc)
         ).map(p => p.namaAm)
     )].sort() as string[];
   }, [allPerfs, cmPeriode, filterDivisi]);

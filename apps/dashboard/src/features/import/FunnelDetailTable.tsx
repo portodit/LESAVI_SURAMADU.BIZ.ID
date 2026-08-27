@@ -15,6 +15,8 @@ export interface FunnelRow {
   divisi: string | null;
   segmen: string | null;
   witel: string | null;
+  witelAm: string | null;
+  witelCc: string | null;
   statusF: string | null;
   proses: string | null;
   statusProyek: string | null;
@@ -49,7 +51,8 @@ const COLUMNS: FilterCol[] = [
   { field: "nilaiProyek", label: "Nilai Proyek", width: "120px", align: "right" },
   { field: "divisi", label: "Divisi", width: "70px", categorical: true, options: ["DPS", "DSS"] },
   { field: "segmen", label: "Segmen", width: "90px", categorical: true },
-  { field: "witel", label: "Witel", width: "90px" },
+  { field: "witelAm", label: "Witel AM", width: "100px" },
+  { field: "witelCc", label: "Witel CC", width: "100px" },
   { field: "statusF", label: "Status F", width: "80px", categorical: true },
   { field: "proses", label: "Proses", width: "100px", categorical: true },
   { field: "statusProyek", label: "Status Proyek", width: "100px" },
@@ -269,8 +272,11 @@ export default function FunnelDetailTable({ rows }: { rows: FunnelRow[] }) {
                       ) : col.field === "statusF" ? (
                         <span className="bg-secondary px-1.5 py-0.5 rounded text-[10px]">{r.statusF || "–"}</span>
                       ) : (
-                        <span className={cn("truncate block", col.align === "right" ? "tabular-nums" : "")}>
+                        <span className={cn("truncate block relative", col.align === "right" ? "tabular-nums" : "")}>
                           {(r as any)[col.field] || <span className="text-muted-foreground/40">–</span>}
+                          {col.field === "nikAm" && !(r as any)[col.field] && (
+                            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-orange-400 border border-white shadow" title="NIK kosong" />
+                          )}
                         </span>
                       )}
                     </td>

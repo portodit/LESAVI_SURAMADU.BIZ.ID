@@ -6,8 +6,10 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 const isBuild = process.env.NODE_ENV === "production" || process.argv.includes("build");
 
+const isDev = !isBuild && process.env.REPL_ID === undefined;
+
 const rawPort = process.env.PORT;
-if (!isBuild && !rawPort) {
+if (isDev && !rawPort) {
   throw new Error(
     "PORT environment variable is required but was not provided.",
   );
@@ -43,6 +45,9 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      "@workspace/api-client-react": path.resolve(import.meta.dirname, "..", "..", "lib", "api-client-react", "src", "index.ts"),
+      "@workspace/api-zod": path.resolve(import.meta.dirname, "..", "..", "lib", "api-zod", "src", "index.ts"),
+      "@workspace/db": path.resolve(import.meta.dirname, "..", "..", "lib", "db", "src", "index.ts"),
     },
     dedupe: ["react", "react-dom"],
   },

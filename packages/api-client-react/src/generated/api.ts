@@ -38,8 +38,16 @@ import type {
   ListFunnelParams,
   ListPerformanceParams,
   LoginBody,
+  LoginResponse,
+  OfficerInfo,
+  OtpRequestBody,
+  OtpRequestResponse,
+  OtpResendResponse,
+  OtpVerifyBody,
   PerformanceDetail,
   PerformanceSummary,
+  PresentationLoginBody,
+  PresentationLoginResponse,
   PublicAmProfile,
   SendTelegramBody,
   Settings,
@@ -47,6 +55,7 @@ import type {
   TelegramCodeResponse,
   TelegramLog,
   TelegramSendResult,
+  TelegramStatusResponse,
   UpdateAccountManagerBody,
   UpdateSettingsBody,
 } from "./api.schemas";
@@ -2249,3 +2258,546 @@ export function useGetPublicAmProfile<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+// ─── OTP Auth Hooks ──────────────────────────────────────────────────────────
+
+export const getLoginWithOtpUrl = () => `/auth/login`;
+
+export const loginWithOtp = async (
+  loginBody: LoginBody,
+  options?: RequestInit,
+): Promise<LoginResponse> => {
+  return customFetch<LoginResponse>(getLoginWithOtpUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(loginBody),
+  });
+};
+
+export const getLoginWithOtpMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof loginWithOtp>>,
+    TError,
+    { data: BodyType<LoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof loginWithOtp>>,
+  TError,
+  { data: BodyType<LoginBody> },
+  TContext
+> => {
+  const mutationKey = ["loginWithOtp"];
+  const { mutation: mutationOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof loginWithOtp>>,
+    { data: BodyType<LoginBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+    return loginWithOtp(data, options?.request);
+  };
+  return { mutationFn, mutationKey, ...mutationOptions };
+};
+
+export type LoginWithOtpMutationResult = NonNullable<
+  Awaited<ReturnType<typeof loginWithOtp>>
+>;
+
+export const useLoginWithOtp = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof loginWithOtp>>,
+    TError,
+    { data: BodyType<LoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof loginWithOtp>>,
+  TError,
+  { data: BodyType<LoginBody> },
+  TContext
+> => {
+  return useMutation(getLoginWithOtpMutationOptions(options));
+};
+
+// ─── OTP request ─────────────────────────────────────────────────────────────
+
+export const getOtpRequestUrl = () => `/auth/otp/request`;
+
+export const otpRequest = async (
+  otpRequestBody: OtpRequestBody,
+  options?: RequestInit,
+): Promise<OtpRequestResponse> => {
+  return customFetch<OtpRequestResponse>(getOtpRequestUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(otpRequestBody),
+  });
+};
+
+export const getOtpRequestMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof otpRequest>>,
+    TError,
+    { data: BodyType<OtpRequestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof otpRequest>>,
+  TError,
+  { data: BodyType<OtpRequestBody> },
+  TContext
+> => {
+  const mutationKey = ["otpRequest"];
+  const { mutation: mutationOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof otpRequest>>,
+    { data: BodyType<OtpRequestBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+    return otpRequest(data, options?.request);
+  };
+  return { mutationFn, mutationKey, ...mutationOptions };
+};
+
+export type OtpRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof otpRequest>>
+>;
+
+export const useOtpRequest = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof otpRequest>>,
+    TError,
+    { data: BodyType<OtpRequestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof otpRequest>>,
+  TError,
+  { data: BodyType<OtpRequestBody> },
+  TContext
+> => {
+  return useMutation(getOtpRequestMutationOptions(options));
+};
+
+// ─── OTP verify ──────────────────────────────────────────────────────────────
+
+export const getOtpVerifyUrl = () => `/auth/otp/verify`;
+
+export const otpVerify = async (
+  otpVerifyBody: OtpVerifyBody,
+  options?: RequestInit,
+): Promise<AuthResponse> => {
+  return customFetch<AuthResponse>(getOtpVerifyUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(otpVerifyBody),
+  });
+};
+
+export const getOtpVerifyMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof otpVerify>>,
+    TError,
+    { data: BodyType<OtpVerifyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof otpVerify>>,
+  TError,
+  { data: BodyType<OtpVerifyBody> },
+  TContext
+> => {
+  const mutationKey = ["otpVerify"];
+  const { mutation: mutationOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof otpVerify>>,
+    { data: BodyType<OtpVerifyBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+    return otpVerify(data, options?.request);
+  };
+  return { mutationFn, mutationKey, ...mutationOptions };
+};
+
+export type OtpVerifyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof otpVerify>>
+>;
+
+export const useOtpVerify = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof otpVerify>>,
+    TError,
+    { data: BodyType<OtpVerifyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof otpVerify>>,
+  TError,
+  { data: BodyType<OtpVerifyBody> },
+  TContext
+> => {
+  return useMutation(getOtpVerifyMutationOptions(options));
+};
+
+// ─── OTP resend ───────────────────────────────────────────────────────────────
+
+export const getOtpResendUrl = () => `/auth/otp/resend`;
+
+export const otpResend = async (
+  options?: RequestInit,
+): Promise<OtpResendResponse> => {
+  return customFetch<OtpResendResponse>(getOtpResendUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+  });
+};
+
+export const getOtpResendMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof otpResend>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof otpResend>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["otpResend"];
+  const { mutation: mutationOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof otpResend>>,
+    void
+  > = () => {
+    return otpResend(options?.request);
+  };
+  return { mutationFn, mutationKey, ...mutationOptions };
+};
+
+export type OtpResendMutationResult = NonNullable<
+  Awaited<ReturnType<typeof otpResend>>
+>;
+
+export const useOtpResend = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof otpResend>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof otpResend>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getOtpResendMutationOptions(options));
+};
+
+// ─── Telegram status ─────────────────────────────────────────────────────────
+
+export const getTelegramStatusUrl = () => `/auth/telegram/status`;
+
+export const getTelegramStatus = async (
+  options?: RequestInit,
+): Promise<TelegramStatusResponse> => {
+  return customFetch<TelegramStatusResponse>(getTelegramStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getTelegramStatusQueryOptions = <
+  TData = TelegramStatusResponse,
+  TError = ErrorType<ErrorResponse>,
+>(
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTelegramStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? ["getTelegramStatus"];
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTelegramStatus>>
+  > = () => {
+    return getTelegramStatus(options?.request);
+  };
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTelegramStatus>>,
+    TError,
+    TData
+  >;
+};
+
+export type TelegramStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTelegramStatus>>
+>;
+
+export const useTelegramStatus = <
+  TData = TelegramStatusResponse,
+  TError = ErrorType<ErrorResponse>,
+>(
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTelegramStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } => {
+  const queryOptions = getTelegramStatusQueryOptions(options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+  return { ...query, queryKey: queryOptions.queryKey };
+};
+
+// ─── Presentation login request OTP ─────────────────────────────────────────
+
+export const getPresentationRequestOtpUrl = () => `/auth/presentation/request-otp`;
+
+export const presentationRequestOtp = async (
+  presentationLoginBody: PresentationLoginBody,
+  options?: RequestInit,
+): Promise<PresentationLoginResponse> => {
+  return customFetch<PresentationLoginResponse>(getPresentationRequestOtpUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(presentationLoginBody),
+  });
+};
+
+export const getPresentationRequestOtpMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof presentationRequestOtp>>,
+    TError,
+    { data: BodyType<PresentationLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof presentationRequestOtp>>,
+  TError,
+  { data: BodyType<PresentationLoginBody> },
+  TContext
+> => {
+  const mutationKey = ["presentationRequestOtp"];
+  const { mutation: mutationOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof presentationRequestOtp>>,
+    { data: BodyType<PresentationLoginBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+    return presentationRequestOtp(data, options?.request);
+  };
+  return { mutationFn, mutationKey, ...mutationOptions };
+};
+
+export type PresentationRequestOtpMutationResult = NonNullable<
+  Awaited<ReturnType<typeof presentationRequestOtp>>
+>;
+
+export const usePresentationRequestOtp = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof presentationRequestOtp>>,
+    TError,
+    { data: BodyType<PresentationLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof presentationRequestOtp>>,
+  TError,
+  { data: BodyType<PresentationLoginBody> },
+  TContext
+> => {
+  return useMutation(getPresentationRequestOtpMutationOptions(options));
+};
+
+// ─── Presentation login verify OTP ──────────────────────────────────────────
+
+export const getPresentationVerifyOtpUrl = () => `/auth/presentation/verify-otp`;
+
+export const presentationVerifyOtp = async (
+  otpVerifyBody: OtpVerifyBody,
+  options?: RequestInit,
+): Promise<AuthResponse> => {
+  return customFetch<AuthResponse>(getPresentationVerifyOtpUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(otpVerifyBody),
+  });
+};
+
+export const getPresentationVerifyOtpMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof presentationVerifyOtp>>,
+    TError,
+    { data: BodyType<OtpVerifyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof presentationVerifyOtp>>,
+  TError,
+  { data: BodyType<OtpVerifyBody> },
+  TContext
+> => {
+  const mutationKey = ["presentationVerifyOtp"];
+  const { mutation: mutationOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof presentationVerifyOtp>>,
+    { data: BodyType<OtpVerifyBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+    return presentationVerifyOtp(data, options?.request);
+  };
+  return { mutationFn, mutationKey, ...mutationOptions };
+};
+
+export type PresentationVerifyOtpMutationResult = NonNullable<
+  Awaited<ReturnType<typeof presentationVerifyOtp>>
+>;
+
+export const usePresentationVerifyOtp = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof presentationVerifyOtp>>,
+    TError,
+    { data: BodyType<OtpVerifyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof presentationVerifyOtp>>,
+  TError,
+  { data: BodyType<OtpVerifyBody> },
+  TContext
+> => {
+  return useMutation(getPresentationVerifyOtpMutationOptions(options));
+};
+
+// ─── Officers list ────────────────────────────────────────────────────────────
+
+export const getAuthOfficersUrl = () => `/auth/officers`;
+
+export const getAuthOfficers = async (
+  options?: RequestInit,
+): Promise<OfficerInfo[]> => {
+  return customFetch<OfficerInfo[]>(getAuthOfficersUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthOfficersQueryOptions = <
+  TData = OfficerInfo[],
+  TError = ErrorType<ErrorResponse>,
+>(
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAuthOfficers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? ["getAuthOfficers"];
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAuthOfficers>>
+  > = () => {
+    return getAuthOfficers(options?.request);
+  };
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAuthOfficers>>,
+    TError,
+    TData
+  >;
+};
+
+export type AuthOfficersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAuthOfficers>>
+>;
+
+export const useAuthOfficers = <
+  TData = OfficerInfo[],
+  TError = ErrorType<ErrorResponse>,
+>(
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAuthOfficers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } => {
+  const queryOptions = getAuthOfficersQueryOptions(options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+  return { ...query, queryKey: queryOptions.queryKey };
+};

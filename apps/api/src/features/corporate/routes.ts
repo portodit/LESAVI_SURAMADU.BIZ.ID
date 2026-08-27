@@ -5,7 +5,7 @@ import { requireAuth } from "../../shared/auth";
 
 const router: IRouter = Router();
 
-router.get("/corporate-customers", requireAuth, async (_req, res) => {
+router.get("/", requireAuth, async (_req, res) => {
   try {
     const result = await db.execute(sql`
       SELECT
