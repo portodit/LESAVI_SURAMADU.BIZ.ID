@@ -20,6 +20,22 @@ async function ensureSessionTable(): Promise<void> {
   `);
 }
 
+async function ensurePresentationSessionTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS presentation_sessions (
+      token VARCHAR NOT NULL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      user_nik VARCHAR(50),
+      user_nama VARCHAR(255) NOT NULL,
+      user_role VARCHAR(50) NOT NULL,
+      created_at TIMESTAMP(6) NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMP(6) NOT NULL
+    ) WITH (OIDS=FALSE);
+    CREATE INDEX IF NOT EXISTS IDX_pres_expires ON presentation_sessions (expires_at);
+  `);
+}
+
+
 async function patchNullTahunAnggaran(): Promise<void> {
   const result = await pool.query(`
     UPDATE sales_funnel
@@ -56,6 +72,10 @@ if (Number.isNaN(port) || port <= 0) {
 ensureSessionTable()
   .then(() => logger.info("Session table ensured"))
   .catch(err => logger.error({ err }, "Failed to ensure session table"));
+
+ensurePresentationSessionTable()
+  .then(() => logger.info("Presentation session store table ensured"))
+  .catch(err => logger.error({ err }, "Failed to ensure presentation session store table"));
 
 ensureDefaultAdmin()
   .then(() => logger.info("Default admin user ensured"))

@@ -4,7 +4,7 @@ import { eq, isNotNull } from "drizzle-orm";
 import { requireAuth } from "../../shared/auth";
 import { rescheduleGSheets } from "../gsheets/scheduler";
 import { rescheduleGDrive } from "../gdrive/scheduler";
-import { rescheduleTelegramPoller } from "../telegram/poller";
+import { rescheduleTelegramPoller, stopTelegramPoller } from "../telegram/poller";
 
 const router: IRouter = Router();
 
@@ -37,7 +37,7 @@ function buildSettingsResponse(settings: typeof appSettingsTable.$inferSelect) {
   };
 }
 
-router.get("/settings", requireAuth, async (req, res): Promise<void> => {
+router.get("/", requireAuth, async (req, res): Promise<void> => {
   let [settings] = await db.select().from(appSettingsTable);
   if (!settings) {
     [settings] = await db.insert(appSettingsTable).values({
@@ -48,7 +48,7 @@ router.get("/settings", requireAuth, async (req, res): Promise<void> => {
   res.json(buildSettingsResponse(settings));
 });
 
-router.patch("/settings", requireAuth, async (req, res): Promise<void> => {
+router.patch("/", requireAuth, async (req, res): Promise<void> => {
   const {
     telegramBotToken, sharepointPerformanceUrl, sharepointFunnelUrl, sharepointActivityUrl,
     autoSendOnImport, kpiActivityDefault,
@@ -117,7 +117,7 @@ router.patch("/settings", requireAuth, async (req, res): Promise<void> => {
 
 // Reset manual: set semua kpi_activity yang sama dengan default ke NULL
 // supaya AM mengikuti default baru. AM dengan custom value berbeda dibiarkan.
-router.post("/settings/reset-kpi-overrides", requireAuth, async (_req, res): Promise<void> => {
+router.post("/reset-kpi-overrides", requireAuth, async (_req, res): Promise<void> => {
   const [settings] = await db.select({ kpiActivityDefault: appSettingsTable.kpiActivityDefault }).from(appSettingsTable).limit(1);
   const currentDefault = settings?.kpiActivityDefault ?? 30;
 
@@ -134,6 +134,13 @@ router.post("/settings/reset-kpi-overrides", requireAuth, async (_req, res): Pro
   }
 
   res.json({ message: "KPI override per-AM berhasil direset ke default", kpiDefault: currentDefault, resetCount: ams.length });
+});
+
+// DELETE /settings/telegram-bot — Hapus bot token (lepas integrasi bot)
+router.delete("/telegram-bot", requireAuth, async (_req, res): Promise<void> => {
+  await db.update(appSettingsTable).set({ telegramBotToken: null, updatedAt: new Date() });
+  stopTelegramPoller();
+  res.json({ success: true });
 });
 
 export default router;

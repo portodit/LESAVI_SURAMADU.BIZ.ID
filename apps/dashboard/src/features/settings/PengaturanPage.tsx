@@ -8,7 +8,7 @@ import { id } from "date-fns/locale";
 import {
   Settings, Bot, CheckCircle2, XCircle, Eye, EyeOff, Save, Loader2, ExternalLink, Zap,
   Sheet, FolderOpen, RefreshCw, Play, History, Terminal, CircleCheck, CircleX,
-  SkipForward, AlertCircle, ChevronDown, ChevronUp,
+  SkipForward, AlertCircle, ChevronDown, ChevronUp, Trash2,
 } from "lucide-react";
 
 const API = import.meta.env.BASE_URL?.replace(/\/$/, "") + "/api";
@@ -122,7 +122,18 @@ export default function PengaturanPage() {
     if (hasDriveFolders) setSyncMode("drive");
   }, [settings]);
 
-  // ── Bot mutation ──────────────────────────────────────────────────────────
+  // ── Lepas bot token ───────────────────────────────────────────────────────
+  const [removeBotOpen, setRemoveBotOpen] = useState(false);
+  const removeBotMut = useMutation({
+    mutationFn: () => apiFetch("/settings/telegram-bot", { method: "DELETE" }),
+    onSuccess: () => {
+      toast({ title: "Bot berhasil dilepas dari integrasi" });
+      setRemoveBotOpen(false);
+      refetchSettings();
+      refetchStatus();
+    },
+    onError: (e: any) => toast({ title: "Gagal melepas bot", description: e.message, variant: "destructive" }),
+  });
   const saveBotMut = useMutation({
     mutationFn: (body: object) => apiFetch("/settings", { method: "PATCH", body: JSON.stringify(body) }),
     onSuccess: () => {
@@ -371,6 +382,10 @@ export default function PengaturanPage() {
                   className="shrink-0 flex items-center gap-1 text-xs text-emerald-700 font-semibold hover:underline">
                   <ExternalLink className="w-3 h-3" /> Buka
                 </a>
+                <button onClick={() => setRemoveBotOpen(true)}
+                  className="shrink-0 flex items-center gap-1 text-[11px] text-red-500 hover:text-red-600 font-medium px-1.5 py-0.5 rounded border border-red-200 hover:border-red-300 hover:bg-red-50 transition-colors">
+                  <Trash2 className="w-3 h-3" /> Putus
+                </button>
               </div>
             )}
 
@@ -457,11 +472,46 @@ export default function PengaturanPage() {
           </div>
 
           {/* Save button */}
-          <button onClick={handleSaveBot} disabled={saveBotMut.isPending}
-            className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/25 hover:shadow-primary/40 active:scale-[0.99] transition-all disabled:opacity-50">
-            {saveBotMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saveBotMut.isPending ? "Menyimpan..." : "Simpan Pengaturan Bot"}
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={handleSaveBot} disabled={saveBotMut.isPending}
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/25 hover:shadow-primary/40 active:scale-[0.99] transition-all disabled:opacity-50">
+              {saveBotMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saveBotMut.isPending ? "Menyimpan..." : "Simpan Pengaturan Bot"}
+            </button>
+          </div>
+
+          {/* Confirmation dialog */}
+          {removeBotOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+              <div className="bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                    <XCircle className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-foreground">Lepas Bot Telegram?</h3>
+                    <p className="text-xs text-muted-foreground">Tindakan ini tidak bisa dibatalkan</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mb-5">
+                  Bot akan dilepas dari sistem. Kamu perlu memasukkan token baru untuk menghubungkan bot kembali.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setRemoveBotOpen(false)}
+                    className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg border border-border bg-secondary hover:bg-secondary/80 transition-colors">
+                    Batal
+                  </button>
+                  <button
+                    onClick={() => removeBotMut.mutate()}
+                    disabled={removeBotMut.isPending}
+                    className="flex-1 px-4 py-2.5 text-sm font-bold rounded-lg bg-destructive text-white hover:bg-destructive/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5">
+                    {removeBotMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                    {removeBotMut.isPending ? "Melepas..." : "Ya, Lepas Bot"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {botStatus?.connected && (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">

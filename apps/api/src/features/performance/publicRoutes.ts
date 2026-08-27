@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { db, performanceDataTable, dataImportsTable, accountManagersTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
+import { expandDivisiPerforma } from "../../shared/divisi";
 
 const router: IRouter = Router();
 
-router.get("/public/performance", async (req, res): Promise<void> => {
+router.get("/performance", async (req, res): Promise<void> => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Frame-Options", "ALLOWALL");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -38,7 +39,22 @@ router.get("/public/performance", async (req, res): Promise<void> => {
   const activeNikSet = new Set(activeAms.map(a => a.nik).filter(Boolean) as string[]);
 
   const conditions = [eq(performanceDataTable.importId, snapshotId)];
-  if (divisi) conditions.push(eq(performanceDataTable.divisi, String(divisi)));
+  if (divisi && String(divisi) !== "all") {
+    const d = String(divisi);
+    const expanded = expandDivisiPerforma(d);
+    if (d === "DPS" || d === "DSS") {
+      // DPS/DSS AMs have divisi='DES' in DB, use divisi_cc to identify
+      conditions.push(eq(performanceDataTable.divisiCc, d));
+    } else {
+      // For other divisi (LESA, GOVT), check divisi column
+      if (expanded.length === 1) {
+        conditions.push(eq(performanceDataTable.divisi, expanded[0]));
+      } else {
+        // LESA: match either DPS or DSS via divisi_cc
+        conditions.push(eq(performanceDataTable.divisiCc, d));
+      }
+    }
+  }
 
   const data = await db
     .select()
@@ -48,10 +64,36 @@ router.get("/public/performance", async (req, res): Promise<void> => {
   // Filter hanya AM aktif
   const filtered = data.filter(d => d.nik && activeNikSet.has(d.nik));
 
-  res.json(filtered.map(d => ({ ...d, createdAt: d.createdAt.toISOString() })));
+  res.json(filtered.map(d => ({
+    ...d,
+    divisi_cc: d.divisiCc,
+    createdAt: d.createdAt.toISOString(),
+    // Parse numeric fields that come from DB as strings
+    tahun: Number(d.tahun),
+    bulan: Number(d.bulan),
+    targetRevenue: Number(d.targetRevenue),
+    realRevenue: Number(d.realRevenue),
+    targetReguler: Number(d.targetReguler),
+    realReguler: Number(d.realReguler),
+    targetSustain: Number(d.targetSustain),
+    realSustain: Number(d.realSustain),
+    targetScaling: Number(d.targetScaling),
+    realScaling: Number(d.realScaling),
+    targetNgtma: Number(d.targetNgtma),
+    realNgtma: Number(d.realNgtma),
+    revenueBase: Number(d.revenueBase),
+    revenueBillcom: Number(d.revenueBillcom),
+    aRev: Number(d.aRev),
+    aNgtma: Number(d.aNgtma),
+    aScaling: Number(d.aScaling),
+    aSustain: Number(d.aSustain),
+    achRate: Number(d.achRate),
+    achRateYtd: Number(d.achRateYtd),
+    rankAch: Number(d.rankAch),
+  })));
 });
 
-router.get("/public/import-history", async (req, res): Promise<void> => {
+router.get("/import-history", async (req, res): Promise<void> => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Frame-Options", "ALLOWALL");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -65,7 +107,7 @@ router.get("/public/import-history", async (req, res): Promise<void> => {
   res.json(history.map(h => ({ ...h, createdAt: h.createdAt.toISOString() })));
 });
 
-router.get("/public/am", async (req, res): Promise<void> => {
+router.get("/am", async (req, res): Promise<void> => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Access-Control-Allow-Origin", "*");
   // Semua user aktif boleh login presentation (AM, OFFICER, MANAGER)

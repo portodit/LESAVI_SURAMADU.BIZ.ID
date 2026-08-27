@@ -6,7 +6,7 @@ import { expandDivisiPerforma } from "../../shared/divisi";
 
 const router: IRouter = Router();
 
-router.get("/performance", requireAuth, async (req, res): Promise<void> => {
+router.get("/", requireAuth, async (req, res): Promise<void> => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   const { year, month, divisi, importId } = req.query;
 
@@ -21,8 +21,14 @@ router.get("/performance", requireAuth, async (req, res): Promise<void> => {
   if (year) conditions.push(eq(performanceDataTable.tahun, parseInt(String(year))));
   if (month) conditions.push(eq(performanceDataTable.bulan, parseInt(String(month))));
   if (divisi && String(divisi) !== "all") {
-    const expanded = expandDivisiPerforma(String(divisi));
-    conditions.push(inArray(performanceDataTable.divisi, expanded));
+    const d = String(divisi);
+    if (d === "DPS" || d === "DSS") {
+      // DPS/DSS AMs have divisi='DES' in DB, use divisi_cc to identify
+      conditions.push(eq(performanceDataTable.divisiCc, d));
+    } else {
+      const expanded = expandDivisiPerforma(d);
+      conditions.push(inArray(performanceDataTable.divisi, expanded));
+    }
   }
   if (importId) conditions.push(eq(performanceDataTable.importId, parseInt(String(importId))));
 
@@ -30,10 +36,10 @@ router.get("/performance", requireAuth, async (req, res): Promise<void> => {
     ? await db.select().from(performanceDataTable).where(and(...conditions))
     : await db.select().from(performanceDataTable);
 
-  res.json(data.map(d => ({ ...d, createdAt: d.createdAt.toISOString() })));
+  res.json(data.map(d => ({ ...d, divisi_cc: d.divisiCc, createdAt: d.createdAt.toISOString() })));
 });
 
-router.get("/performance/:nik", requireAuth, async (req, res): Promise<void> => {
+router.get("/:nik", requireAuth, async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.nik) ? req.params.nik[0] : req.params.nik;
   const { year, month } = req.query;
 
@@ -43,7 +49,6 @@ router.get("/performance/:nik", requireAuth, async (req, res): Promise<void> => 
 
   const summaries = await db.select().from(performanceDataTable).where(and(...conditions));
   if (summaries.length === 0) { res.status(404).json({ error: "Data tidak ditemukan" }); return; }
-
   const first = summaries[0];
   res.json({
     nik: first.nik,

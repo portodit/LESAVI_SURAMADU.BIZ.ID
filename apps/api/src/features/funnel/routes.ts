@@ -7,7 +7,7 @@ import { matchesDivisi, expandDivisi } from "../../shared/divisi";
 const router: IRouter = Router();
 
 // ── Snapshots ──────────────────────────────────────────────────────────────────
-router.get("/funnel/snapshots", requireAuth, async (req, res): Promise<void> => {
+router.get("/snapshots", requireAuth, async (req, res): Promise<void> => {
   const imports = await db
     .select()
     .from(dataImportsTable)
@@ -24,12 +24,12 @@ router.get("/funnel/snapshots", requireAuth, async (req, res): Promise<void> => 
 });
 
 // ── Targets CRUD ───────────────────────────────────────────────────────────────
-router.get("/funnel/targets", requireAuth, async (req, res): Promise<void> => {
+router.get("/targets", requireAuth, async (req, res): Promise<void> => {
   const targets = await db.select().from(salesFunnelTargetTable).orderBy(desc(salesFunnelTargetTable.tahun));
   res.json(targets);
 });
 
-router.post("/funnel/targets", requireAuth, async (req, res): Promise<void> => {
+router.post("/targets", requireAuth, async (req, res): Promise<void> => {
   const { divisi, tahun, targetHo, targetFullHo } = req.body;
   if (!tahun) { res.status(400).json({ error: "tahun is required" }); return; }
 
@@ -57,20 +57,20 @@ router.post("/funnel/targets", requireAuth, async (req, res): Promise<void> => {
   }
 });
 
-router.delete("/funnel/targets/:id", requireAuth, async (req, res): Promise<void> => {
+router.delete("/targets/:id", requireAuth, async (req, res): Promise<void> => {
   await db.delete(salesFunnelTargetTable).where(eq(salesFunnelTargetTable.id, Number(req.params.id)));
   res.json({ ok: true });
 });
 
 // ── AM Funnel Targets (per-AM annual) ─────────────────────────────────────────
-router.get("/funnel/am-targets", requireAuth, async (req, res): Promise<void> => {
+router.get("/am-targets", requireAuth, async (req, res): Promise<void> => {
   const { tahun } = req.query;
   let rows = await db.select().from(amFunnelTargetTable).orderBy(desc(amFunnelTargetTable.tahun));
   if (tahun) rows = rows.filter(r => r.tahun === Number(tahun));
   res.json(rows);
 });
 
-router.post("/funnel/am-targets", requireAuth, async (req, res): Promise<void> => {
+router.post("/am-targets", requireAuth, async (req, res): Promise<void> => {
   const { nikAm, tahun, targetValue } = req.body;
   if (!nikAm || !tahun) { res.status(400).json({ error: "nikAm dan tahun wajib diisi" }); return; }
   const existing = await db.select().from(amFunnelTargetTable)
@@ -87,13 +87,13 @@ router.post("/funnel/am-targets", requireAuth, async (req, res): Promise<void> =
   }
 });
 
-router.delete("/funnel/am-targets/:id", requireAuth, async (req, res): Promise<void> => {
+router.delete("/am-targets/:id", requireAuth, async (req, res): Promise<void> => {
   await db.delete(amFunnelTargetTable).where(eq(amFunnelTargetTable.id, Number(req.params.id)));
   res.json({ ok: true });
 });
 
 // ── Main Funnel Data ───────────────────────────────────────────────────────────
-router.get("/funnel", requireAuth, async (req, res): Promise<void> => {
+router.get("/", requireAuth, async (req, res): Promise<void> => {
   const { import_id, divisi, status, nama_am, kategori_kontrak, tahun, tahun_list, is_report, project_type } = req.query;
 
   // Load account_managers for name resolution and AM group filtering
@@ -269,7 +269,7 @@ router.get("/funnel", requireAuth, async (req, res): Promise<void> => {
     byAm: amGroups,
     amTargets,
     amTargetYear: lookupYearForAm,
-    masterAms: masterAms.filter(m => m.aktif && m.role === "AM" && m.nik).map(m => ({ nik: m.nik, nama: m.nama, divisi: m.divisi })),
+    masterAms: masterAms.filter(m => m.aktif && m.role === "ACCOUNT_MANAGER" && m.nik).map(m => ({ nik: m.nik, nama: m.nama, divisi: m.divisi })),
     lops: allLops.map(l => ({
       id: l.id,
       lopid: l.lopid,
@@ -296,7 +296,7 @@ router.get("/funnel", requireAuth, async (req, res): Promise<void> => {
 });
 
 // ── Data Quality Proof (must be before /:nik wildcard) ──────────────────────────
-router.get("/funnel/data-quality", requireAuth, async (req, res): Promise<void> => {
+router.get("/data-quality", requireAuth, async (req, res): Promise<void> => {
   const statsRows = await db.execute(sql`
     SELECT
       COUNT(*)::int                                                    AS total_lop,
@@ -339,7 +339,7 @@ router.get("/funnel/data-quality", requireAuth, async (req, res): Promise<void> 
   });
 });
 
-router.get("/funnel/:nik", requireAuth, async (req, res): Promise<void> => {
+router.get("/:nik", requireAuth, async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.nik) ? req.params.nik[0] : req.params.nik;
   const lops = await db.select().from(salesFunnelTable).where(eq(salesFunnelTable.nikAm, raw));
   const totalLop = lops.length;

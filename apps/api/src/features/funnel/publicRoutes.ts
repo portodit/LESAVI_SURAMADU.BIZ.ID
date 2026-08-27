@@ -11,7 +11,7 @@ const PUBLIC_HEADERS = {
   "Access-Control-Allow-Origin": "*",
 };
 
-router.get("/public/funnel/snapshots", async (req, res): Promise<void> => {
+router.get("/funnel/snapshots", async (req, res): Promise<void> => {
   Object.entries(PUBLIC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
   const imports = await db
     .select()
@@ -33,7 +33,7 @@ router.get("/public/funnel/snapshots", async (req, res): Promise<void> => {
   })));
 });
 
-router.get("/public/funnel", async (req, res): Promise<void> => {
+router.get("/funnel", async (req, res): Promise<void> => {
   Object.entries(PUBLIC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 
   const { import_id, divisi, status, nama_am, kategori_kontrak, tahun, tahun_list, rd_year, durasi_filter, is_report, project_type } = req.query;
