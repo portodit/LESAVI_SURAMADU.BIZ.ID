@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, createPortal } from "react";
 import { cn } from "@/shared/lib/utils";
+import { yearMonthToPeriodSet, periodToYearMonth, periodToLabel } from "@/shared/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -22,7 +23,7 @@ const data = prognosaDataRaw as Row[];
 
 type ComputedRow = {
   nik: string; namaAm: string; divisiCc: string;
-  target: number; real: number; base: number; qlop: number; f5: number;
+  target: number; real: number; base: number; bc: number; f34: number; qlop: number; f5: number;
   before: number; exc: number; inc: number;
   achBefore: number; achExc: number; achInc: number;
 };
@@ -256,7 +257,7 @@ export const TIPE_REVENUE_OPTIONS: { value: TipeRevenueKey; label: string }[] = 
 ];
 
 type OverallData = {
-  target: number; real: number; base: number;
+  target: number; real: number; base: number; bc: number;
   qlop: number; f5: number;
   before: number; exc: number; inc: number;
 };
@@ -265,8 +266,11 @@ export default function PrognosaSlide({
   visible = true,
   scenario,
   setScenario,
-  selectedPeriodes,
-  setSelectedPeriodes,
+  allPeriodes,
+  filterYears,
+  setFilterYears,
+  filterMonths,
+  setFilterMonths,
   selectedDivisi,
   setSelectedDivisi,
   selectedAmNames,
@@ -279,8 +283,11 @@ export default function PrognosaSlide({
   visible?: boolean;
   scenario?: ScenarioKey;
   setScenario?: (s: ScenarioKey) => void;
-  selectedPeriodes?: Set<string>;
-  setSelectedPeriodes?: (s: Set<string>) => void;
+  allPeriodes?: string[];
+  filterYears?: Set<string>;
+  setFilterYears?: (s: Set<string>) => void;
+  filterMonths?: Set<string>;
+  setFilterMonths?: (s: Set<string>) => void;
   selectedDivisi?: Set<string>;
   setSelectedDivisi?: (s: Set<string>) => void;
   selectedAmNames?: Set<string>;
@@ -298,14 +305,43 @@ export default function PrognosaSlide({
 
   const _scenario = scenario ?? "all";
   const _setScenario = setScenario ?? (() => {});
-  const _selectedPeriodes = selectedPeriodes ?? new Set<string>();
-  const _setSelectedPeriodes = setSelectedPeriodes ?? (() => {});
+  const _allPeriodes = allPeriodes ?? [];
+  const _filterYears = filterYears ?? new Set<string>();
+  const _setFilterYears = setFilterYears ?? (() => {});
+  const _filterMonths = filterMonths ?? new Set<string>();
+  const _setFilterMonths = setFilterMonths ?? (() => {});
   const _selectedDivisi = selectedDivisi ?? new Set<string>();
   const _setSelectedDivisi = setSelectedDivisi ?? (() => {});
   const _selectedAmNames = selectedAmNames ?? new Set<string>();
   const _setSelectedAmNames = setSelectedAmNames ?? (() => {});
 
-  const allPeriodes = useMemo(() => {
+  // Convert year/month filter to period strings for data filtering
+  const _selectedPeriodes = useMemo(() =>
+    yearMonthToPeriodSet(_filterYears, _filterMonths, _allPeriodes),
+    [_filterYears, _filterMonths, _allPeriodes]
+  );
+
+  // Build available years and months per year from allPeriodes
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    for (const p of _allPeriodes) {
+      const { year } = periodToYearMonth(p) ?? { year: p.slice(0, 4) };
+      years.add(year);
+    }
+    return [...years].sort().reverse();
+  }, [_allPeriodes]);
+
+  const availableMonthsByYear = useMemo(() => {
+    const result: Record<string, Set<string>> = {};
+    for (const p of _allPeriodes) {
+      const { year, month } = periodToYearMonth(p) ?? { year: p.slice(0, 4), month: p.slice(4, 6) };
+      if (!result[year]) result[year] = new Set<string>();
+      result[year].add(month);
+    }
+    return result;
+  }, [_allPeriodes]);
+
+  const allPeriodesDisplay = useMemo(() => {
     const p = new Set<number>();
     for (const r of data) { p.add(r.PERIODE); }
     return [...p].sort().map(String);
@@ -314,6 +350,7 @@ export default function PrognosaSlide({
   const computed = useMemo(() => {
     const filtered = data
       .filter(r => r.WITEL_AM === "SURAMADU")
+      .filter(r => _selectedPeriodes.size === 0 || _selectedPeriodes.has(String(r.PERIODE)))
       .filter(r => _selectedDivisi.size === 0 || (_selectedDivisi.has(r.DIVISI_CC) || _selectedDivisi.has(r.DIVISI_AM)))
       .filter(r => _selectedAmNames.size === 0 || _selectedAmNames.has(r.NAMA_AM));
 
@@ -324,8 +361,10 @@ export default function PrognosaSlide({
       if (existing) {
         existing.target += r.TARGET_REVENUE;
         existing.real += r.REAL_REVENUE;
-        existing.base += r["F3-F4"];
-        existing.qlop += r.REVENUE_BASE;
+        existing.base += r.REVENUE_BASE;
+        existing.bc += r.REVENUE_BILLCOM;
+        existing.f34 += r["F3-F4"];
+        existing.qlop += r["F3-F4"] * 0.5267;  // QLOP = F3-F4 x 52.67%
         existing.f5 += r.F5;
       } else {
         byAm.set(r.NAMA_AM, {
@@ -334,8 +373,10 @@ export default function PrognosaSlide({
           divisiCc: r.DIVISI_CC,
           target: r.TARGET_REVENUE,
           real: r.REAL_REVENUE,
-          base: r["F3-F4"],
-          qlop: r.REVENUE_BASE,
+          base: r.REVENUE_BASE,
+          bc: r.REVENUE_BILLCOM,
+          f34: r["F3-F4"],
+          qlop: r["F3-F4"] * 0.5267,
           f5: r.F5,
           before: 0, exc: 0, inc: 0,
           achBefore: 0, achExc: 0, achInc: 0,
@@ -343,7 +384,7 @@ export default function PrognosaSlide({
       }
     }
     for (const r of byAm.values()) {
-      r.before = r.real + r.base;
+      r.before = r.real + r.base + r.bc;  // Excel: before LOP = Real + Base + BC
       r.exc = r.before + r.qlop;
       r.inc = r.exc + r.f5;
       r.achBefore = r.target > 0 ? r.before / r.target : 0;
@@ -354,9 +395,9 @@ export default function PrognosaSlide({
 
     const t = rows.reduce((a, r) => ({
       target: a.target + r.target, real: a.real + r.real, base: a.base + r.base,
-      qlop: a.qlop + r.qlop, f5: a.f5 + r.f5,
-    }), { target: 0, real: 0, base: 0, qlop: 0, f5: 0 });
-    const before = t.real + t.base;
+      bc: a.bc + r.bc, qlop: a.qlop + r.qlop, f5: a.f5 + r.f5,
+    }), { target: 0, real: 0, base: 0, bc: 0, qlop: 0, f5: 0 });
+    const before = t.real + t.base + t.bc;  // Excel: before LOP = Real + Base + BC
     const exc = before + t.qlop;
     const inc = exc + t.f5;
 
@@ -367,11 +408,29 @@ export default function PrognosaSlide({
       const cur = monthsMap.get(p) ?? { target: 0, real: 0, base: 0 };
       cur.target += r.TARGET_REVENUE;
       cur.real += r.REAL_REVENUE;
-      cur.base += r["F3-F4"];
+      cur.base += r.REVENUE_BASE;  // pivot "Base Revenue" = REVENUE_BASE
       monthsMap.set(p, cur);
     }
     const months = [...monthsMap.entries()].sort(([a], [b]) => a - b)
       .map(([p, v]) => ({ periode: p, target: v.target, real: v.real, base: v.base }));
+
+    // Dynamic column labels — computed from filtered data
+    const allPeriodesInFilter = filtered.map(r => r.PERIODE).filter(p =>
+      filtered.some(r => r.PERIODE === p && r.REAL_REVENUE !== 0)
+    );
+    const uniquePeriodesSorted = [...new Set(allPeriodesInFilter)].sort((a, b) => a - b);
+    const lastRealPeriode = uniquePeriodesSorted[uniquePeriodesSorted.length - 1] ?? 0;
+    const lastRealStr = String(lastRealPeriode);
+    const realYtdLabel = lastRealPeriode > 0
+      ? "Real PMS YTD " + MONTHS_LABEL[(lastRealPeriode % 100) - 1] + lastRealStr.slice(2, 4)
+      : "Real PMS YTD";
+
+    const bcPeriodes = [...new Set(filtered.filter(r => r.REVENUE_BILLCOM !== 0).map(r => r.PERIODE))].sort((a, b) => a - b);
+    const lastBcPeriode = bcPeriodes[bcPeriodes.length - 1] ?? 0;
+    const lastBcStr = String(lastBcPeriode);
+    const bcLabel = lastBcPeriode > 0
+      ? "BC (" + MONTHS_LABEL[(lastBcPeriode % 100) - 1] + "'" + lastBcStr.slice(2, 4) + ")"
+      : "BC (Billcom)";
 
     return {
       rows,
@@ -380,8 +439,10 @@ export default function PrognosaSlide({
       topBefore: rows[0],
       topExc: [...rows].sort((a, b) => b.achExc - a.achExc)[0],
       topInc: [...rows].sort((a, b) => b.achInc - a.achInc)[0],
+      realYtdLabel,
+      bcLabel,
     };
-  }, [_selectedDivisi, _selectedAmNames]);
+  }, [_selectedPeriodes, _selectedDivisi, _selectedAmNames]);
 
   const o = computed.overall as OverallData;
   const achMap: Record<Exclude<ScenarioKey, "all">, number> = {
@@ -390,20 +451,22 @@ export default function PrognosaSlide({
     inc: o.target > 0 ? o.inc / o.target : 0,
   };
 
-  const totalPipeline = o.real + o.base + o.qlop + o.f5;
-  const totalUnrealized = o.qlop + o.f5;
+  const totalPipeline = o.real + o.base + o.bc + o.qlop + o.f5;
+  const totalUnrealized = o.bc + o.qlop + o.f5;
 
   // Chart 1: Komposisi Seluruh Outlook — red/yellow/blue
   const pipeData = [
     { name: "Real YTD", value: o.real, color: "#ef4444" },
     { name: "Base+BC", value: o.base, color: "#fbbf24" },
+    { name: "Billcom", value: o.bc, color: "#8b5cf6" },
     { name: "Qualified LOP", value: o.qlop, color: "#3b82f6" },
     { name: "LOP F5", value: o.f5, color: "#1d4ed8" },
   ];
 
   // Chart 2: Dominasi Pipeline — red/yellow/blue (exclude real & base)
   const domData = [
-    { name: "Qualified LOP", value: o.qlop, color: "#fbbf24" },
+    { name: "Billcom", value: o.bc, color: "#fbbf24" },
+    { name: "Qualified LOP", value: o.qlop, color: "#10b981" },
     { name: "LOP F5", value: o.f5, color: "#3b82f6" },
   ];
 
@@ -418,6 +481,7 @@ export default function PrognosaSlide({
     name: r.namaAm.split(' ').map((part, i) => i === 0 ? part : part[0].toUpperCase() + '.').join(' '),
     fullName: r.namaAm,
     before: r.before,
+    bc: r.bc,
     qlop: r.qlop,
     f5: r.f5,
     target: r.target,
@@ -439,13 +503,13 @@ export default function PrognosaSlide({
   return (
     <>
       {visible && (
-      <div className="p-4 space-y-4">
+      <div className="p-3 md:p-4 space-y-3 md:space-y-4">
 
         {/* ── KPI Cards ── */}
         {_scenario === "all" ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-card border border-border rounded-xl p-4 shadow-sm min-w-0">
-                <h3 className="text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="bg-card border border-border rounded-xl p-3 md:p-4 shadow-sm min-w-0">
+                <h3 className="text-sm md:text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
                   Capaian Outlook Dasar
                   <span className="text-xs font-black px-2.5 py-0.5 rounded bg-blue-100 text-blue-700">BEFORE LOP</span>
                 </h3>
@@ -475,8 +539,8 @@ export default function PrognosaSlide({
                   </div>
                 </div>
               </div>
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm min-w-0">
-                <h3 className="text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
+              <div className="bg-card border border-border rounded-xl p-3 md:p-4 shadow-sm min-w-0">
+                <h3 className="text-sm md:text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
                   Capaian Outlook Pipeline
                   <span className="text-xs font-black px-2.5 py-0.5 rounded bg-blue-100 text-blue-700">EXCLUDE F5</span>
                 </h3>
@@ -506,8 +570,8 @@ export default function PrognosaSlide({
                   </div>
                 </div>
               </div>
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm min-w-0">
-                <h3 className="text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
+              <div className="bg-card border border-border rounded-xl p-3 md:p-4 shadow-sm min-w-0">
+                <h3 className="text-sm md:text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
                   Capaian Outlook Menyeluruh
                   <span className="text-xs font-black px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-700">INCLUDE F5</span>
                 </h3>
@@ -539,7 +603,7 @@ export default function PrognosaSlide({
               </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             {(() => {
               const scenarioKey = _scenario as Exclude<ScenarioKey, "all">;
               const topAm = scenarioKey === "before" ? computed.topBefore : scenarioKey === "exc" ? computed.topExc : computed.topInc;
@@ -550,11 +614,11 @@ export default function PrognosaSlide({
               return (
             <>
             {/* 2-column side-by-side: Capaian + TOP AM */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Capaian KPI — left column */}
             {scenarioKey === "before" && (
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm min-w-0">
-                <h3 className="text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
+              <div className="bg-card border border-border rounded-xl p-3 md:p-4 shadow-sm min-w-0">
+                <h3 className="text-sm md:text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
                   Capaian Outlook Dasar
                   <span className="text-xs font-black px-2.5 py-0.5 rounded bg-blue-100 text-blue-700">BEFORE LOP</span>
                 </h3>
@@ -586,8 +650,8 @@ export default function PrognosaSlide({
               </div>
             )}
             {scenarioKey === "exc" && (
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm min-w-0">
-                <h3 className="text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
+              <div className="bg-card border border-border rounded-xl p-3 md:p-4 shadow-sm min-w-0">
+                <h3 className="text-sm md:text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
                   Capaian Outlook Pipeline
                   <span className="text-xs font-black px-2.5 py-0.5 rounded bg-blue-100 text-blue-700">EXCLUDE F5</span>
                 </h3>
@@ -619,8 +683,8 @@ export default function PrognosaSlide({
               </div>
             )}
             {scenarioKey === "inc" && (
-              <div className="bg-card border border-border rounded-xl p-4 shadow-sm min-w-0">
-                <h3 className="text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
+              <div className="bg-card border border-border rounded-xl p-3 md:p-4 shadow-sm min-w-0">
+                <h3 className="text-sm md:text-base font-display font-bold text-foreground mb-2 flex items-center gap-2">
                   Capaian Outlook Menyeluruh
                   <span className="text-xs font-black px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-700">INCLUDE F5</span>
                 </h3>
@@ -652,7 +716,7 @@ export default function PrognosaSlide({
               </div>
             )}
             {/* TOP AM — right column */}
-            <div className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-3 min-w-0 shadow-sm">
+            <div className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50 rounded-xl px-3 md:px-4 py-3 min-w-0 shadow-sm">
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div className="min-w-0">
                   <p className="text-[13px] font-bold uppercase tracking-wider leading-tight text-amber-700 dark:text-amber-400">TOP AM by Revenue ({scenarioLabel})</p>
@@ -684,19 +748,18 @@ export default function PrognosaSlide({
           </div>
         )}
 
-        {/* ── Komposisi + Dominasi + Outlook vs Target — 1 ROW ── */}
-        <div className="flex gap-4">
+        {/* ── Komposisi + Dominasi + Outlook vs Target — responsive row ── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
 
           {/* Komposisi Seluruh Outlook */}
-          <div className="w-52 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
-            <div className="px-4 pt-4 pb-2">
-              <h2 className="text-sm font-display font-bold text-foreground tracking-tight">Komposisi Seluruh Outlook</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Seberapa besar outlook sudah di tangan vs masih proyeksi</p>
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-3 pt-3 pb-1">
+              <h2 className="text-xs font-display font-bold text-foreground tracking-tight">Komposisi Seluruh Outlook</h2>
             </div>
-            <div className="flex flex-col items-center gap-2 px-4 pb-4">
-              <ResponsiveContainer width="100%" height={140}>
+            <div className="flex flex-col items-center gap-1 px-3 pb-3">
+              <ResponsiveContainer width="100%" height={130}>
                 <PieChart>
-                  <Pie data={pipeData} cx="50%" cy="50%" innerRadius={36} outerRadius={60} paddingAngle={2} dataKey="value">
+                  <Pie data={pipeData} cx="50%" cy="50%" innerRadius={30} outerRadius={52} paddingAngle={2} dataKey="value">
                     {pipeData.map((entry, index) => (
                       <Cell key={"cell1-" + index} fill={entry.color} stroke="none" />
                     ))}
@@ -707,12 +770,12 @@ export default function PrognosaSlide({
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="w-full space-y-1.5">
+              <div className="w-full space-y-1">
                 {pipeData.map((item, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
-                    <span className="text-xs font-semibold text-foreground truncate flex-1">{item.name}</span>
-                    <span className="text-xs font-bold text-foreground tabular-nums shrink-0">
+                    <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
+                    <span className="text-[10px] font-semibold text-foreground truncate flex-1">{item.name}</span>
+                    <span className="text-[10px] font-bold text-foreground tabular-nums shrink-0">
                       {totalPipeline > 0 ? (item.value / totalPipeline * 100).toFixed(0) : "0"}%
                     </span>
                   </div>
@@ -722,15 +785,14 @@ export default function PrognosaSlide({
           </div>
 
           {/* Dominasi Pipeline */}
-          <div className="w-52 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
-            <div className="px-4 pt-4 pb-2">
-              <h2 className="text-sm font-display font-bold text-foreground tracking-tight">Dominasi Pipeline</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Dari yang belum terealisasi (exclude real & base): masih nego vs sudah menang</p>
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-3 pt-3 pb-1">
+              <h2 className="text-xs font-display font-bold text-foreground tracking-tight">Dominasi Pipeline</h2>
             </div>
-            <div className="flex flex-col items-center gap-2 px-4 pb-4">
-              <ResponsiveContainer width="100%" height={140}>
+            <div className="flex flex-col items-center gap-1 px-3 pb-3">
+              <ResponsiveContainer width="100%" height={130}>
                 <PieChart>
-                  <Pie data={domData} cx="50%" cy="50%" innerRadius={36} outerRadius={60} paddingAngle={2} dataKey="value">
+                  <Pie data={domData} cx="50%" cy="50%" innerRadius={30} outerRadius={52} paddingAngle={2} dataKey="value">
                     {domData.map((entry, index) => (
                       <Cell key={"cell2-" + index} fill={entry.color} stroke="none" />
                     ))}
@@ -741,12 +803,12 @@ export default function PrognosaSlide({
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="w-full space-y-1.5">
+              <div className="w-full space-y-1">
                 {domData.map((item, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
-                    <span className="text-xs font-semibold text-foreground truncate flex-1">{item.name}</span>
-                    <span className="text-xs font-bold text-foreground tabular-nums shrink-0">
+                    <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
+                    <span className="text-[10px] font-semibold text-foreground truncate flex-1">{item.name}</span>
+                    <span className="text-[10px] font-bold text-foreground tabular-nums shrink-0">
                       {totalUnrealized > 0 ? (item.value / totalUnrealized * 100).toFixed(0) : "0"}%
                     </span>
                   </div>
@@ -756,39 +818,49 @@ export default function PrognosaSlide({
           </div>
 
           {/* Komposisi Outlook terhadap Target (per AM) — HORIZONTAL STACKED BAR */}
-          <div className="flex-1 min-w-0 bg-card border border-border rounded-xl overflow-hidden">
-            <div className="px-4 pt-4 pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-display font-bold text-foreground tracking-tight">Komposisi Outlook terhadap Target (per AM)</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">1 Batang = 1 AM · Real+Base · Qualified LOP · LOP F5</p>
-                </div>
-                <div className="flex items-center gap-4 shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-sm bg-red-500" />
-                    <span className="text-xs font-bold text-foreground">Real+Base</span>
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-3 pt-3 pb-1">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <h2 className="text-xs font-display font-bold text-foreground tracking-tight">Outlook per AM</h2>
+                <div className="hidden sm:flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
+                    <span className="text-[10px] font-bold text-foreground">Before</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-sm bg-amber-500" />
-                    <span className="text-xs font-bold text-foreground">QLOP</span>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-sm bg-violet-500" />
+                    <span className="text-[10px] font-bold text-foreground">BC</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-sm bg-blue-600" />
-                    <span className="text-xs font-bold text-foreground">F5</span>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
+                    <span className="text-[10px] font-bold text-foreground">QLOP</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-sm bg-blue-600" />
+                    <span className="text-[10px] font-bold text-foreground">F5</span>
                   </div>
                 </div>
               </div>
+              {/* Mobile legend — horizontal wrap */}
+              <div className="sm:hidden flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
+                {[["bg-red-500","Before"],["bg-violet-500","BC"],["bg-amber-500","QLOP"],["bg-blue-600","F5"]].map(([c,l]) => (
+                  <div key={l} className="flex items-center gap-1">
+                    <div className={"w-2 h-2 rounded-sm " + c} />
+                    <span className="text-[9px] font-bold text-foreground">{l}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="px-4 pb-4">
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={barData} margin={{ top: 4, right: 8, bottom: 8, left: 8 }} barCategoryGap="15%">
+            <div className="px-2 pb-2">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={barData} margin={{ top: 2, right: 4, bottom: 4, left: 4 }} barCategoryGap="10%">
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                  <XAxis type="category" dataKey="name" tick={{ fontSize: 9, fontWeight: "700", fill: "hsl(var(--foreground))" }} axisLine={{ stroke: "hsl(var(--foreground))" }} interval={0} />
-                  <YAxis type="number" tickFormatter={(v) => fmtRupiahFS(v)} tick={{ fontSize: 10, fontWeight: "700", fill: "hsl(var(--foreground))" }} axisLine={{ stroke: "hsl(var(--foreground))" }} />
+                  <XAxis type="category" dataKey="name" tick={{ fontSize: 8, fontWeight: "700", fill: "hsl(var(--foreground))" }} axisLine={{ stroke: "hsl(var(--foreground))" }} interval={0} />
+                  <YAxis type="number" tickFormatter={(v) => fmtRupiahFS(v)} tick={{ fontSize: 9, fontWeight: "700", fill: "hsl(var(--foreground))" }} axisLine={{ stroke: "hsl(var(--foreground))" }} width={45} />
                   <Tooltip
-                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "12px", fontWeight: "700", fontSize: "12px", color: "hsl(var(--foreground))" }}
-                    labelStyle={{ fontWeight: "900", fontSize: "13px", color: "hsl(var(--foreground))" }}
-                    formatter={(value: number, name: string) => [fmtRupiahFS(value), name === "before" ? "Real+Base" : name === "qlop" ? "Qualified LOP" : "LOP F5"]}
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontWeight: "700", fontSize: "11px", color: "hsl(var(--foreground))" }}
+                    labelStyle={{ fontWeight: "900", fontSize: "11px", color: "hsl(var(--foreground))" }}
+                    formatter={(value: number, name: string) => [fmtRupiahFS(value), name === "before" ? "Before LOP" : name === "bc" ? "Billcom" : name === "qlop" ? "Qualified LOP" : "LOP F5"]}
                     labelFormatter={(_, payload) => payload && payload[0] ? (payload[0] as any).payload.fullName : ""}
                   />
                   <Bar dataKey="before" stackId="a" name="before" radius={[0, 0, 0, 0]}>
@@ -796,6 +868,7 @@ export default function PrognosaSlide({
                       <Cell key={"cell-before-" + index} fill={entry.beforeAch >= 1 ? "#ef4444" : entry.beforeAch >= 0.8 ? "#f59e0b" : "#ef4444"} />
                     ))}
                   </Bar>
+                  <Bar dataKey="bc" stackId="a" name="bc" fill="#8b5cf6" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="qlop" stackId="a" name="qlop" fill="#f59e0b" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="f5" stackId="a" name="f5" fill="#3b82f6" radius={[0, 3, 3, 0]} />
                 </BarChart>
@@ -805,29 +878,29 @@ export default function PrognosaSlide({
         </div>
 
         {/* ── Revenue Bulanan ── */}
-        <div className="bg-card border border-border rounded-xl px-4 pt-4 pb-4">
-          <div className="flex items-center justify-between mb-3">
+        <div className="bg-card border border-border rounded-xl px-3 md:px-4 pt-3 md:pt-4 pb-3 md:pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-3">
             <div>
               <h2 className="text-sm font-display font-bold text-foreground tracking-tight">Revenue Bulanan</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Real (solid) vs Proyeksi Base (putus-putus) vs Target</p>
             </div>
-            <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center gap-3 md:gap-4 shrink-0 flex-wrap">
               <div className="flex items-center gap-1.5">
                 <div className="w-5 h-0.5 rounded" style={{ backgroundColor: "#16a34a" }} />
-                <span className="text-xs font-bold text-foreground">Real</span>
+                <span className="text-[10px] md:text-xs font-bold text-foreground">Real</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-5 h-0.5 rounded" style={{ backgroundColor: "#d97706", backgroundImage: "repeating-linear-gradient(90deg,#d97706 0,#d97706 4px,transparent 4px,transparent 8px)" }} />
-                <span className="text-xs font-bold text-foreground">Proyeksi Base</span>
+                <span className="text-[10px] md:text-xs font-bold text-foreground">Proyeksi Base</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-5 h-0.5 rounded" style={{ backgroundColor: "#2563eb" }} />
-                <span className="text-xs font-bold text-foreground">Target</span>
+                <span className="text-[10px] md:text-xs font-bold text-foreground">Target</span>
               </div>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={lineData} margin={{ top: 8, right: 24, bottom: 4, left: 16 }}>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={lineData} margin={{ top: 4, right: 16, bottom: 4, left: 12 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis
                 dataKey="bulan"
@@ -885,7 +958,7 @@ export default function PrognosaSlide({
           <div className="border border-border rounded overflow-hidden" style={{ boxShadow: "rgba(0, 0, 0, 0.1) 0px 2px 4px" }}>
 
             {/* ── Single scrollable table with sticky header ── */}
-            <div className="overflow-auto" style={{ maxHeight: "calc(-280px + 100svh)" }}>
+            <div className="overflow-auto" style={{ maxHeight: "calc(100svh - 100px)" }}>
               <table style={{ minWidth: 960, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, width: "100%" }}>
                 <colgroup>
                   <col style={{ width: 28 }} />
@@ -914,9 +987,9 @@ export default function PrognosaSlide({
                     <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "0" }}></th>
                     <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 16px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>Nama AM</th>
                     <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>Target Revenue</th>
-                    <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>Real PMS YTD</th>
+                    <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>{computed.realYtdLabel}</th>
                     <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>Base Revenue</th>
-                    <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>BC (16 Agu '26)</th>
+                    <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em" }}>{computed.bcLabel}</th>
                     <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em", textDecoration: "underline", textUnderlineOffset: 2 }}>Outlook<br/>(before LOP)</th>
                     <th style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em", textDecoration: "underline", textUnderlineOffset: 2 }}>Ach<br/>(before LOP)</th>
                     {_scenario === "all" && <th title="Qualified LOP = Base Conversion Revenue ((F3-F4) x Conversion Rate)" style={{ backgroundColor: "rgb(185, 28, 28)", padding: "12px 8px", textAlign: "center", fontSize: 12, fontWeight: 900, color: "white", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "help" }}>Qualified LOP</th>}
@@ -971,7 +1044,7 @@ export default function PrognosaSlide({
                           <td style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontWeight: 600, fontVariantNumeric: "tabular-nums", backgroundColor: rowBg }}>{fmtRupiahFS(am.target)}</td>
                           <td style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontWeight: 800, fontVariantNumeric: "tabular-nums", backgroundColor: rowBg }}>{fmtRupiahFS(am.real)}</td>
                           <td style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontWeight: 800, fontVariantNumeric: "tabular-nums", backgroundColor: rowBg }}>{fmtRupiahFS(am.base)}</td>
-                          <td style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontWeight: 800, fontVariantNumeric: "tabular-nums", backgroundColor: rowBg }}>{fmtRupiahFS(am.f5)}</td>
+                          <td style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontWeight: 800, fontVariantNumeric: "tabular-nums", backgroundColor: rowBg }}>{fmtRupiahFS(am.bc)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontSize: 12, fontWeight: 800, fontVariantNumeric: "tabular-nums", backgroundColor: rowBg }}>{fmtRupiahFS(am.before)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "center", fontSize: 12, fontWeight: 900, fontVariantNumeric: "tabular-nums", color: achColor(am.achBefore), backgroundColor: rowBg }}>{fmtPct(am.achBefore)}</td>
                           {_scenario === "all" && <>
