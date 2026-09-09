@@ -90,6 +90,7 @@ async function buildAll() {
       "sass-embedded",
       "sequelize",
       "serialport",
+      "connect-pg-simple",
       "snappy",
       "tinypool",
       "usb",
