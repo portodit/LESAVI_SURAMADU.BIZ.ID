@@ -2102,13 +2102,14 @@ function ActivityPeriodeDropdown({filterYear,setFilterYear,filterMonths,setFilte
       : `${filterYear} · ${filterMonths.size} bulan`;
   const toggleYearCheckbox=(y:string)=>{
     if(y!==filterYear){setFilterYear(y);setFilterMonths(new Set());return;}
-    if(allSelected) setFilterMonths(new Set([String(new Date().getMonth()+1)]));
+    if(allSelected) setFilterMonths(new Set([String(new Date().getMonth()+1).padStart(2,"0")]));
     else setFilterMonths(new Set());
   };
   const toggleMonth=(m:string)=>{
-    if(allSelected){setFilterMonths(new Set([m]));return;}
-    const n=new Set(filterMonths);
-    if(n.has(m)) n.delete(m); else n.add(m);
+    const normalized = m.padStart(2, "0"); // ensure "9" -> "09" for consistency
+    if(allSelected){setFilterMonths(new Set([normalized]));return;}
+    const n=new Set([...filterMonths].map(v=>v.padStart(2,"0")));
+    if(n.has(normalized)) n.delete(normalized); else n.add(normalized);
     if(n.size===0||n.size===12) setFilterMonths(new Set());
     else setFilterMonths(n);
   };
@@ -2133,7 +2134,7 @@ function ActivityPeriodeDropdown({filterYear,setFilterYear,filterMonths,setFilte
             <div className="flex gap-1.5">
               <button onClick={()=>setFilterMonths(new Set())} className="text-[11px] text-primary font-semibold hover:underline">Semua</button>
               <span className="text-muted-foreground text-[11px]">·</span>
-              <button onClick={()=>{setFilterYear(String(new Date().getFullYear()));setFilterMonths(new Set([String(new Date().getMonth()+1)]));}} className="text-[11px] text-muted-foreground font-semibold hover:underline">Reset</button>
+              <button onClick={()=>{setFilterYear(String(new Date().getFullYear()));setFilterMonths(new Set([String(new Date().getMonth()+1).padStart(2,"0")]));}} className="text-[11px] text-muted-foreground font-semibold hover:underline">Reset</button>
             </div>
           </div>
           <div className="max-h-72 overflow-y-auto py-1">
@@ -2156,8 +2157,8 @@ function ActivityPeriodeDropdown({filterYear,setFilterYear,filterMonths,setFilte
                     </span>
                   </div>
                   {isActive&&ACT_MONTHS_FULL.slice(1).map((mName,idx)=>{
-                    const mNum=String(idx+1);
-                    const checked=!allSelected&&filterMonths.has(mNum);
+                    const mNum=String(idx+1).padStart(2,"0");
+                    const checked=!allSelected&&[...filterMonths].map(v=>v.padStart(2,"0")).includes(mNum);
                     return (
                       <button key={mNum} onClick={()=>toggleMonth(mNum)}
                         className={cn("w-full text-left pl-9 pr-3 py-1.5 text-sm hover:bg-secondary flex items-center gap-2 transition-colors",
@@ -2194,6 +2195,8 @@ function ActivitySlide() {
   const [actExpandAll, setActExpandAll] = useState<boolean|null>(null);
   const [actSortBy, setActSortBy] = useState<"default"|"highest"|"lowest">("default");
   const actSearchRef = useRef<HTMLInputElement>(null);
+  // Only auto-set months once per snapshot — reset when snapshot changes
+  const monthAutoSetForSnap = useRef<string>("");
 
   // Sync horizontal scroll between sticky header and scrollable body
   const actHeaderScrollRef = useRef<HTMLDivElement>(null);
@@ -2240,6 +2243,12 @@ function ActivitySlide() {
 
   const divisiOptions = DIVISI_OPTIONS;
 
+  // Read snapshot from URL param ?snapshot=160
+  const urlSnapId = useMemo(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("snapshot");
+  }, []);
+
   // ─── Snapshots ──────────────────────────────────────────────────────────
   const {data:actSnaps=[]} = useQuery<any[]>({
     queryKey:["activity-snapshots-slide"],
@@ -2264,13 +2273,20 @@ function ActivitySlide() {
     }),
   ],[actSnaps]);
 
-  // Auto-select snapshot terbaru saat pertama kali data snapshot tersedia
+  // Auto-select snapshot: prefer URL param, fallback to latest snapshot
   useEffect(()=>{
-    if(Array.isArray(actSnaps)&&actSnaps.length>0&&!snapInitialized.current){
+    if(!Array.isArray(actSnaps)||actSnaps.length===0) return;
+    if(!snapInitialized.current){
       snapInitialized.current=true;
-      setFilterSnapId(String(actSnaps[0].id));
+      // If URL has ?snapshot=NNN, use it if it exists in snapshots
+      if(urlSnapId){
+        const found=actSnaps.some((s:any)=>String(s.id)===urlSnapId);
+        setFilterSnapId(found?urlSnapId:String(actSnaps[0].id));
+      } else {
+        setFilterSnapId(String(actSnaps[0].id));
+      }
     }
-  },[actSnaps]);
+  },[actSnaps, urlSnapId]);
 
   // ─── Query ──────────────────────────────────────────────────────────────
   const queryUrl = useMemo(()=>{
@@ -2286,6 +2302,21 @@ function ActivitySlide() {
     staleTime:0,
     refetchOnWindowFocus:true,
   });
+
+  // Auto-select latest month from snapshot data — runs ONCE per snapshot
+  useEffect(()=>{
+    if(!data) return;
+    const avail = data.availableMonths;
+    if(!Array.isArray(avail)||avail.length===0) return;
+    // Skip if already auto-set for this snapshot
+    if(monthAutoSetForSnap.current === filterSnapId) return;
+    monthAutoSetForSnap.current = filterSnapId;
+    const latest = avail[0]; // "YYYY-MM", sorted reverse (latest first)
+    const yr = latest.slice(0,4);
+    const mo = latest.slice(5,7);
+    setFilterYear(yr);
+    setFilterMonths(new Set([mo]));
+  },[data, filterSnapId]);
 
   const {data:actSettingsData} = useQuery<any>({
     queryKey:["settings-kpi-slide"],
@@ -2737,7 +2768,17 @@ export default function EmbedPerforma() {
   const [searchQuery, setSearchQuery] = useState("");
   const [custViewMode, setCustViewMode] = useState<"perBulan" | "agregasi">("agregasi");
   const [loading, setLoading] = useState(true);
-  const [currentSlide, setCurrentSlide] = useState(0);
+  // Read ?type= from URL to determine initial slide (performance|funnel|activity)
+  const initialSlide = useMemo(() => {
+    const p = new URLSearchParams(window.location.search);
+    const t = p.get("type");
+    if (t === "funnel") return 2;
+    if (t === "activity") return 3;
+    if (t === "prognosa") return 1;
+    return 0;
+  }, []);
+
+  const [currentSlide, setCurrentSlide] = useState(initialSlide);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [scenario, setScenario] = useState<ScenarioKey>("all");
   const [selectedPeriodes, setSelectedPeriodes] = useState<Set<string>>(new Set());
@@ -2745,6 +2786,8 @@ export default function EmbedPerforma() {
   const [tipeRevenue, setTipeRevenue] = useState<TipeRevenueKey>("Reguler");
   const [selectedDivisi, setSelectedDivisi] = useState<Set<string>>(new Set());
   const [selectedAmNames, setSelectedAmNames] = useState<Set<string>>(new Set());
+  const [prognosaAmFilterValue, setPrognosaAmFilterValue] = useState<string | null>(null);
+  const [amSearchQuery, setAmSearchQuery] = useState("");
 
   // Compute available Divisi and AM name options from prognosa data
   // Compute available Divisi and AM name options from prognosa data
@@ -2834,7 +2877,7 @@ export default function EmbedPerforma() {
                   </button>
                   <button
                     onClick={() => setSelectedPeriodes(new Set(allPeriodes))}
-                    className="text-xs px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground font-semibold transition-colors"
+                    className="text-xs px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-red-500 font-semibold transition-colors border border-red-200 hover:border-red-400"
                   >
                     Kosongkan
                   </button>
@@ -2843,7 +2886,9 @@ export default function EmbedPerforma() {
               {allPeriodes.map(p => {
                 const monthIdx = parseInt(p.slice(4)) - 1;
                 const label = `${["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"][monthIdx]} ${p.slice(0, 4)}`;
-                const isSelected = selectedPeriodes.size === 0 || selectedPeriodes.has(p);
+                const isSelected = selectedPeriodes.size === 0
+                  ? true  // semua checked saat "Semua" aktif
+                  : selectedPeriodes.has(p);  // checked jika dipilih
                 return (
                   <label key={p} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-secondary cursor-pointer text-sm">
                     <input
@@ -2851,24 +2896,83 @@ export default function EmbedPerforma() {
                       checked={isSelected}
                       onChange={() => {
                         setSelectedPeriodes(prev => {
-                          const next = new Set(prev.size === 0 ? allPeriodes : prev);
-                          if (prev.size === 0) {
-                            return new Set([p]);
-                          }
+                          const prevSet = prev.size === 0 ? new Set(allPeriodes) : prev;
+                          const next = new Set(prevSet);
                           if (next.has(p)) {
                             next.delete(p);
                           } else {
                             next.add(p);
                           }
+                          // Jika semua dipilih, reset ke mode "Semua" (empty = all)
+                          if (next.size === allPeriodes.length) return new Set();
                           return next;
                         });
                       }}
-                      className="rounded"
+                      style={{ accentColor: "hsl(0, 84%, 60%)" }}
+                      className="rounded cursor-pointer w-3.5 h-3.5"
                     />
                     <span>{label}</span>
                   </label>
                 );
               })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+      {/* Account Manager — single choice with search */}
+      <div className="flex flex-col gap-1 shrink-0" style={{ width: 180 }}>
+        <label className="text-xs font-display font-bold text-foreground uppercase tracking-wide">Account Manager</label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="h-9 px-3 bg-secondary/50 border border-border rounded-lg text-sm flex items-center gap-1.5 w-full whitespace-nowrap focus:ring-2 focus:ring-primary/20 focus:border-primary">
+              <span className="flex-1 text-left truncate font-medium text-foreground">
+                {prognosaAmFilterValue ? progAmNameOptions.find(n => n === prognosaAmFilterValue) ?? prognosaAmFilterValue : "Semua AM"}
+              </span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 shrink-0 text-muted-foreground"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="p-0" align="start" sideOffset={4} style={{ width: 220 }}>
+            <div className="bg-popover border border-border rounded-xl shadow-lg p-1.5">
+              <input
+                type="text"
+                placeholder="Cari AM..."
+                value={amSearchQuery}
+                onChange={e => setAmSearchQuery(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-border bg-background mb-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary placeholder:text-muted-foreground"
+              />
+              <div className="max-h-48 overflow-y-auto">
+                <button
+                  onClick={() => setPrognosaAmFilterValue(null)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2",
+                    prognosaAmFilterValue === null
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground hover:bg-muted"
+                  )}
+                >
+                  {prognosaAmFilterValue === null && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                  {prognosaAmFilterValue !== null && <span className="w-1.5 shrink-0" />}
+                  Semua AM
+                </button>
+                {progAmNameOptions
+                  .filter(n => amSearchQuery === "" || n.toLowerCase().includes(amSearchQuery.toLowerCase()))
+                  .map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setPrognosaAmFilterValue(n)}
+                      className={cn(
+                        "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2",
+                        prognosaAmFilterValue === n
+                          ? "bg-primary text-primary-foreground font-semibold"
+                          : "text-foreground hover:bg-muted"
+                      )}
+                    >
+                      {prognosaAmFilterValue === n && <span className="w-1.5 h-1.5 rounded-full bg-primary-foreground shrink-0" />}
+                      {prognosaAmFilterValue !== n && <span className="w-1.5 shrink-0" />}
+                      {n}
+                    </button>
+                  ))}
+              </div>
             </div>
           </PopoverContent>
         </Popover>
@@ -3154,11 +3258,11 @@ export default function EmbedPerforma() {
           return { ...c, _divisi: cr.divisi_cc, _periode: periodeStr };
         });
       });
-      const custMap = new Map<string, { c: any; periods: Set<string> }>();
+      const custMap = new Map<string, { c: any; periods: Set<string>; proporsiSum: number; proporsiCount: number }>();
       for (const c of custRaw) {
         const key = `${c.nip || c.pelanggan}__${c._divisi || ""}`;
         if (!custMap.has(key)) {
-          custMap.set(key, { c: { ...c }, periods: new Set([c._periode]) });
+          custMap.set(key, { c: { ...c }, periods: new Set([c._periode]), proporsiSum: c.proporsi ?? 0, proporsiCount: 1 });
         } else {
           const entry = custMap.get(key)!;
           entry.periods.add(c._periode);
@@ -3177,9 +3281,15 @@ export default function EmbedPerforma() {
             entry.c.targetTotal = (entry.c.targetTotal ?? 0) + (c.targetTotal ?? 0);
             entry.c.realTotal   = (entry.c.realTotal   ?? 0) + (c.realTotal   ?? 0);
           }
+          // Average proporsi across all periods
+          entry.proporsiSum += c.proporsi ?? 0;
+          entry.proporsiCount += 1;
         }
       }
-      const mergedCustomers = [...custMap.values()].map(e => e.c);
+      const mergedCustomers = [...custMap.values()].map(e => {
+        const avgProporsi = e.proporsiCount > 0 ? e.proporsiSum / e.proporsiCount : 0;
+        return { ...e.c, proporsi: avgProporsi };
+      });
       return {
         nik, namaAm: primaryCmRow.namaAm, divisi: primaryCmRow.divisi, divisiAll,
         statusWarna: primaryCmRow.statusWarna,
@@ -3404,7 +3514,7 @@ export default function EmbedPerforma() {
             <div className="leading-tight min-w-0">
               <p className="text-[9px] sm:text-[10px] font-black text-muted-foreground uppercase tracking-widest leading-none">LESA VI WITEL SURAMADU</p>
               <p className="text-xs sm:text-sm font-bold text-foreground truncate max-w-[160px] sm:max-w-none">
-                {currentSlide === 1 ? "Prognosa AM 2026" : currentSlide === 2
+                {currentSlide === 1 ? "Prognosa AM FY 2026" : currentSlide === 2
                   ? <><span className="sm:hidden">AM Sales Funnel</span><span className="hidden sm:inline">SALES FUNNELING LOP MYTENS {funnelSubtitle}</span></>
                   : currentSlide === 3
                   ? <><span className="sm:hidden">Sales Activity</span><span className="hidden sm:inline">AM SALES ACTIVITY REPORT</span></>
@@ -3567,6 +3677,8 @@ export default function EmbedPerforma() {
         setTipeRank={setTipeRank}
         tipeRevenue={tipeRevenue}
         setTipeRevenue={setTipeRevenue}
+        amFilterValue={prognosaAmFilterValue}
+        setAmFilterValue={setPrognosaAmFilterValue}
       />
 
       {/* ─── Slide: Sales Funnel ──────────────────────────── */}
@@ -3883,7 +3995,7 @@ export default function EmbedPerforma() {
                             <tbody>
                               {displayCusts.map((c: any, ci: number) => {
                                 const { target: cTarget, real: cReal } = getCustRev(c);
-                                const prop = c.proporsi != null ? c.proporsi : 0;
+                                const prop = (c.proporsi != null ? c.proporsi : 0) * 100;
                                 const cAch = Math.abs(cTarget) > 0 ? cReal / cTarget * 100 : 0;
                                 return (
                                   <tr key={ci} className={cn("transition-colors hover:bg-rose-50", ci % 2 === 0 ? "bg-white dark:bg-card" : "bg-rose-50/40 dark:bg-rose-950/10")}>

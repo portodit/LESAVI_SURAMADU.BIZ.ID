@@ -279,6 +279,8 @@ export default function PrognosaSlide({
   setTipeRank,
   tipeRevenue,
   setTipeRevenue,
+  amFilterValue,
+  setAmFilterValue,
 }: {
   visible?: boolean;
   scenario?: ScenarioKey;
@@ -296,6 +298,8 @@ export default function PrognosaSlide({
   setTipeRank?: (v: TipeRankKey) => void;
   tipeRevenue?: TipeRevenueKey;
   setTipeRevenue?: (v: TipeRevenueKey) => void;
+  amFilterValue?: string | null;
+  setAmFilterValue?: (s: string | null) => void;
 }) {
   const _tipeRank = tipeRank ?? "Ach CM";
   const _setTipeRank = setTipeRank ?? (() => {});
@@ -312,6 +316,7 @@ export default function PrognosaSlide({
   const _setFilterMonths = setFilterMonths ?? (() => {});
   const _selectedDivisi = selectedDivisi ?? new Set<string>();
   const _setSelectedDivisi = setSelectedDivisi ?? (() => {});
+  const _amFilterValue = amFilterValue ?? null;
   const _selectedAmNames = selectedAmNames ?? new Set<string>();
   const _setSelectedAmNames = setSelectedAmNames ?? (() => {});
 
@@ -439,12 +444,83 @@ export default function PrognosaSlide({
       topBefore: rows[0],
       topExc: [...rows].sort((a, b) => b.achExc - a.achExc)[0],
       topInc: [...rows].sort((a, b) => b.achInc - a.achInc)[0],
+      top3Before: rows.slice(0, 3),
+      top3Exc: [...rows].sort((a, b) => b.achExc - a.achExc).slice(0, 3),
+      top3Inc: [...rows].sort((a, b) => b.achInc - a.achInc).slice(0, 3),
       realYtdLabel,
       bcLabel,
     };
-  }, [_selectedPeriodes, _selectedDivisi, _selectedAmNames]);
+  }, [_selectedPeriodes, _selectedDivisi]);
 
-  const o = computed.overall as OverallData;
+  // Separate computed for KPI/charts — filtered by single AM choice (amFilterValue)
+  const computedKpi = useMemo(() => {
+    const filtered = data
+      .filter(r => r.WITEL_AM === "SURAMADU")
+      .filter(r => _selectedPeriodes.size === 0 || _selectedPeriodes.has(String(r.PERIODE)))
+      .filter(r => _selectedDivisi.size === 0 || (_selectedDivisi.has(r.DIVISI_CC) || _selectedDivisi.has(r.DIVISI_AM)))
+      .filter(r => _amFilterValue === null || r.NAMA_AM === _amFilterValue);
+
+    const t = filtered.reduce((a, r) => ({
+      target: a.target + r.TARGET_REVENUE,
+      real: a.real + r.REAL_REVENUE,
+      base: a.base + r.REVENUE_BASE,
+      bc: a.bc + r.REVENUE_BILLCOM,
+      qlop: a.qlop + r["F3-F4"] * 0.5267,
+      f5: a.f5 + r.F5,
+    }), { target: 0, real: 0, base: 0, bc: 0, qlop: 0, f5: 0 });
+    const before = t.real + t.base + t.bc;
+    const exc = before + t.qlop;
+    const inc = exc + t.f5;
+
+    const monthsMap = new Map<number, { target: number; real: number; base: number }>();
+    for (const r of filtered) {
+      const p = r.PERIODE;
+      const cur = monthsMap.get(p) ?? { target: 0, real: 0, base: 0 };
+      cur.target += r.TARGET_REVENUE;
+      cur.real += r.REAL_REVENUE;
+      cur.base += r.REVENUE_BASE;
+      monthsMap.set(p, cur);
+    }
+    const months = [...monthsMap.entries()].sort(([a], [b]) => a - b)
+      .map(([p, v]) => ({ periode: p, target: v.target, real: v.real, base: v.base }));
+
+    return { overall: { ...t, before, exc, inc }, months };
+  }, [_selectedPeriodes, _selectedDivisi, _amFilterValue]);
+
+  // All AMs for bar chart — always shows all, no AM filter
+  const allRows = useMemo(() => {
+    const byAm = new Map<string, ComputedRow>();
+    for (const r of data.filter(r => r.WITEL_AM === "SURAMADU")) {
+      const existing = byAm.get(r.NAMA_AM);
+      if (existing) {
+        existing.target += r.TARGET_REVENUE;
+        existing.real += r.REAL_REVENUE;
+        existing.base += r.REVENUE_BASE;
+        existing.bc += r.REVENUE_BILLCOM;
+        existing.f34 += r["F3-F4"];
+        existing.qlop += r["F3-F4"] * 0.5267;
+        existing.f5 += r.F5;
+      } else {
+        byAm.set(r.NAMA_AM, {
+          nik: String(r.NIK), namaAm: r.NAMA_AM, divisiCc: r.DIVISI_CC,
+          target: r.TARGET_REVENUE, real: r.REAL_REVENUE, base: r.REVENUE_BASE,
+          bc: r.REVENUE_BILLCOM, f34: r["F3-F4"], qlop: r["F3-F4"] * 0.5267, f5: r.F5,
+          before: 0, exc: 0, inc: 0, achBefore: 0, achExc: 0, achInc: 0,
+        });
+      }
+    }
+    for (const r of byAm.values()) {
+      r.before = r.real + r.base + r.bc;
+      r.exc = r.before + r.qlop;
+      r.inc = r.exc + r.f5;
+      r.achBefore = r.target > 0 ? r.before / r.target : 0;
+      r.achExc = r.target > 0 ? r.exc / r.target : 0;
+      r.achInc = r.target > 0 ? r.inc / r.target : 0;
+    }
+    return [...byAm.values()].sort((a, b) => b.achBefore - a.achBefore);
+  }, []);
+
+  const o = computedKpi.overall as OverallData;
   const achMap: Record<Exclude<ScenarioKey, "all">, number> = {
     before: o.target > 0 ? o.before / o.target : 0,
     exc: o.target > 0 ? o.exc / o.target : 0,
@@ -454,19 +530,17 @@ export default function PrognosaSlide({
   const totalPipeline = o.real + o.base + o.bc + o.qlop + o.f5;
   const totalUnrealized = o.bc + o.qlop + o.f5;
 
-  // Chart 1: Komposisi Seluruh Outlook — red/yellow/blue
+  // Chart 1: Komposisi Seluruh Outlook — 4 segments
   const pipeData = [
     { name: "Real YTD", value: o.real, color: "#ef4444" },
-    { name: "Base+BC", value: o.base, color: "#fbbf24" },
-    { name: "Billcom", value: o.bc, color: "#8b5cf6" },
-    { name: "Qualified LOP", value: o.qlop, color: "#3b82f6" },
-    { name: "LOP F5", value: o.f5, color: "#1d4ed8" },
+    { name: "Base+BC", value: o.base + o.bc, color: "#fb923c" },
+    { name: "Qualified LOP", value: o.qlop, color: "#facc15" },
+    { name: "LOP F5", value: o.f5, color: "#3b82f6" },
   ];
 
-  // Chart 2: Dominasi Pipeline — red/yellow/blue (exclude real & base)
+  // Chart 2: Dominasi Pipeline — 2 segments (exclude real & base)
   const domData = [
-    { name: "Billcom", value: o.bc, color: "#fbbf24" },
-    { name: "Qualified LOP", value: o.qlop, color: "#10b981" },
+    { name: "Qualified LOP", value: o.qlop, color: "#facc15" },
     { name: "LOP F5", value: o.f5, color: "#3b82f6" },
   ];
 
@@ -475,23 +549,22 @@ export default function PrognosaSlide({
     "Wildan", "Safirina", "Nadya Zahro", "Havea", "Ervina", "Caesar",
   ];
 
-  const barData = computed.rows
+  const barData = allRows
     .filter(r => AM_ACTIVE.some(a => r.namaAm.toLowerCase().startsWith(a.toLowerCase())))
     .map(r => ({
     name: r.namaAm.split(' ').map((part, i) => i === 0 ? part : part[0].toUpperCase() + '.').join(' '),
     fullName: r.namaAm,
-    before: r.before,
-    bc: r.bc,
+    before: r.before + r.bc,
     qlop: r.qlop,
     f5: r.f5,
     target: r.target,
     nik: r.nik,
-    beforeAch: r.target > 0 ? r.before / r.target : 0,
+    beforeAch: r.target > 0 ? (r.before + r.bc) / r.target : 0,
     exc: r.exc,
     inc: r.inc,
   }));
 
-  const lineData = computed.months.map((m) => ({
+  const lineData = computedKpi.months.map((m) => ({
     bulan: MONTHS_LABEL[(m.periode % 100) - 1] ?? String(m.periode),
     target: m.target,
     real: m.real,
@@ -606,14 +679,10 @@ export default function PrognosaSlide({
           <div className="flex flex-col gap-3">
             {(() => {
               const scenarioKey = _scenario as Exclude<ScenarioKey, "all">;
-              const topAm = scenarioKey === "before" ? computed.topBefore : scenarioKey === "exc" ? computed.topExc : computed.topInc;
               const scenarioLabel = scenarioKey === "before" ? "Before LOP" : scenarioKey === "exc" ? "Exclude F5" : "Include F5";
-              if (!topAm) return null;
-              const topAch = scenarioKey === "before" ? topAm.achBefore : scenarioKey === "exc" ? topAm.achExc : topAm.achInc;
-              const topOutlook = scenarioKey === "before" ? topAm.real : scenarioKey === "exc" ? topAm.before : topAm.exc;
               return (
             <>
-            {/* 2-column side-by-side: Capaian + TOP AM */}
+            {/* 2-column side-by-side: Capaian + spacer */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Capaian KPI — left column */}
             {scenarioKey === "before" && (
@@ -715,30 +784,44 @@ export default function PrognosaSlide({
                 </div>
               </div>
             )}
-            {/* TOP AM — right column */}
-            <div className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50 rounded-xl px-3 md:px-4 py-3 min-w-0 shadow-sm">
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-bold uppercase tracking-wider leading-tight text-amber-700 dark:text-amber-400">TOP AM by Revenue ({scenarioLabel})</p>
-                </div>
-                <span className="text-3xl leading-none shrink-0 mt-0.5" style={{ color: "#d97706" }}>★</span>
+            {/* TOP 3 AM — full width horizontal cards */}
+            <div className="bg-white dark:bg-card border border-border rounded-xl px-3 md:px-4 py-3 shadow-sm">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <p className="text-[13px] font-bold uppercase tracking-wider leading-tight text-foreground">TOP 3 AM by Revenue ({scenarioLabel})</p>
+                <span className="text-2xl leading-none shrink-0" style={{ color: "#d97706" }}>★</span>
               </div>
-              <p className="font-bold text-[15px] text-amber-900 dark:text-amber-100 uppercase tracking-wide truncate leading-tight mb-3" title={topAm.namaAm}>{topAm.namaAm}</p>
-              {/* Percentage left, 2 mini stats right — same row */}
-              <div className="flex items-start gap-3 mb-3">
-                <p className="text-5xl font-bold tabular-nums leading-none shrink-0" style={{ color: "#16a34a" }}>{fmtPct(topAch)}</p>
-                <div className="flex-1 min-w-0">
-                  <div className="rounded-xl px-3 py-2 border border-amber-200 dark:border-amber-700 mb-1.5">
-                    <p className="text-[9px] font-bold uppercase tracking-widest mb-0.5 text-amber-600 dark:text-amber-400">
-                      {scenarioKey === "before" ? "Real" : scenarioKey === "exc" ? "Outlook Before LOP" : "LOP F5"}
-                    </p>
-                    <p className="text-[13px] font-bold text-amber-900 dark:text-amber-100 truncate">{fmtRupiahFS(topOutlook)}</p>
-                  </div>
-                  <div className="rounded-xl px-3 py-2 border border-amber-200 dark:border-amber-700">
-                    <p className="text-[9px] font-bold uppercase tracking-widest mb-0.5 text-amber-600 dark:text-amber-400">Target</p>
-                    <p className="text-[13px] font-bold text-amber-900 dark:text-amber-100 truncate">{fmtRupiahFS(topAm.target)}</p>
-                  </div>
-                </div>
+              <div className="flex gap-3">
+                {(() => {
+                  const top3 = scenarioKey === "before" ? computed.top3Before : scenarioKey === "exc" ? computed.top3Exc : computed.top3Inc;
+                  return top3.map((am, i) => {
+                    const ach = scenarioKey === "before" ? am.achBefore : scenarioKey === "exc" ? am.achExc : am.achInc;
+                    const outlook = scenarioKey === "before" ? am.real : scenarioKey === "exc" ? am.before : am.exc;
+                    const rankImg = i === 0 ? "/img/rank1.png" : i === 1 ? "/img/rank2.png" : "/img/rank3.png";
+                    const rankBg = i === 0 ? "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700" : i === 1 ? "bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-600" : "bg-orange-50 dark:bg-orange-950/30 border-orange-300 dark:border-orange-700";
+                    const achColor = ach >= 1 ? "text-green-600 dark:text-green-400" : ach >= 0.8 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+                    const nameColor = i === 0 ? "text-yellow-800 dark:text-yellow-200" : i === 1 ? "text-slate-700 dark:text-slate-200" : "text-orange-700 dark:text-orange-200";
+                    return (
+                      <div key={am.nik} className={`flex-1 rounded-xl border-2 px-3 py-2.5 ${rankBg}`}>
+                        {/* Rank icon + name */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <img src={rankImg} alt={`Rank ${i + 1}`} className="w-8 h-8 object-contain shrink-0" />
+                          <span className={`text-[12px] font-black uppercase leading-tight line-clamp-2 ${nameColor}`}>{am.namaAm}</span>
+                        </div>
+                        {/* Achievement */}
+                        <p className={`text-2xl font-black tabular-nums leading-none mb-2 ${achColor}`}>{fmtPct(ach)}</p>
+                        {/* Outlook + Target in bordered boxes */}
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 mb-1">
+                          <p className="text-[9px] font-extrabold uppercase tracking-wider text-gray-400 mb-0.5">Outlook</p>
+                          <p className="text-[13px] font-extrabold text-gray-900 dark:text-gray-100 tabular-nums">{fmtRupiahFS(outlook)}</p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-2.5 py-1.5">
+                          <p className="text-[9px] font-extrabold uppercase tracking-wider text-gray-400 mb-0.5">Target</p>
+                          <p className="text-[13px] font-extrabold text-gray-900 dark:text-gray-100 tabular-nums">{fmtRupiahFS(am.target)}</p>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
             </div>
@@ -749,17 +832,18 @@ export default function PrognosaSlide({
         )}
 
         {/* ── Komposisi + Dominasi + Outlook vs Target — responsive row ── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
 
           {/* Komposisi Seluruh Outlook */}
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <div className="px-3 pt-3 pb-1">
-              <h2 className="text-xs font-display font-bold text-foreground tracking-tight">Komposisi Seluruh Outlook</h2>
+              <h2 className="text-sm md:text-base font-display font-bold text-foreground tracking-tight">Komposisi Seluruh Outlook</h2>
+              <p className="text-xs text-foreground font-medium mt-0.5">Seberapa besar outlook sudah di tangan vs masih proyeksi</p>
             </div>
-            <div className="flex flex-col items-center gap-1 px-3 pb-3">
-              <ResponsiveContainer width="100%" height={130}>
+            <div className="flex flex-col items-center gap-1 px-3 pb-4">
+              <ResponsiveContainer width="100%" height={160}>
                 <PieChart>
-                  <Pie data={pipeData} cx="50%" cy="50%" innerRadius={30} outerRadius={52} paddingAngle={2} dataKey="value">
+                  <Pie data={pipeData} cx="50%" cy="50%" innerRadius={35} outerRadius={70} paddingAngle={2} dataKey="value">
                     {pipeData.map((entry, index) => (
                       <Cell key={"cell1-" + index} fill={entry.color} stroke="none" />
                     ))}
@@ -770,13 +854,12 @@ export default function PrognosaSlide({
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="w-full space-y-1">
+              <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5">
                 {pipeData.map((item, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
-                    <span className="text-[10px] font-semibold text-foreground truncate flex-1">{item.name}</span>
-                    <span className="text-[10px] font-bold text-foreground tabular-nums shrink-0">
-                      {totalPipeline > 0 ? (item.value / totalPipeline * 100).toFixed(0) : "0"}%
+                  <div key={i} className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
+                    <span className="text-sm font-semibold text-foreground">
+                      {item.name} ({totalPipeline > 0 ? (item.value / totalPipeline * 100).toFixed(0) : "0"}%)
                     </span>
                   </div>
                 ))}
@@ -788,11 +871,12 @@ export default function PrognosaSlide({
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <div className="px-3 pt-3 pb-1">
               <h2 className="text-xs font-display font-bold text-foreground tracking-tight">Dominasi Pipeline</h2>
+              <p className="text-xs text-foreground font-medium mt-0.5">Dari yang belum terealisasi (exclude real &amp; base): masih nego vs sudah menang</p>
             </div>
-            <div className="flex flex-col items-center gap-1 px-3 pb-3">
-              <ResponsiveContainer width="100%" height={130}>
+            <div className="flex flex-col items-center gap-1 px-3 pb-4">
+              <ResponsiveContainer width="100%" height={160}>
                 <PieChart>
-                  <Pie data={domData} cx="50%" cy="50%" innerRadius={30} outerRadius={52} paddingAngle={2} dataKey="value">
+                  <Pie data={domData} cx="50%" cy="50%" innerRadius={35} outerRadius={70} paddingAngle={2} dataKey="value">
                     {domData.map((entry, index) => (
                       <Cell key={"cell2-" + index} fill={entry.color} stroke="none" />
                     ))}
@@ -803,13 +887,12 @@ export default function PrognosaSlide({
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="w-full space-y-1">
+              <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5">
                 {domData.map((item, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
-                    <span className="text-[10px] font-semibold text-foreground truncate flex-1">{item.name}</span>
-                    <span className="text-[10px] font-bold text-foreground tabular-nums shrink-0">
-                      {totalUnrealized > 0 ? (item.value / totalUnrealized * 100).toFixed(0) : "0"}%
+                  <div key={i} className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
+                    <span className="text-sm font-semibold text-foreground">
+                      {item.name} ({totalUnrealized > 0 ? (item.value / totalUnrealized * 100).toFixed(0) : "0"}%)
                     </span>
                   </div>
                 ))}
@@ -817,36 +900,31 @@ export default function PrognosaSlide({
             </div>
           </div>
 
-          {/* Komposisi Outlook terhadap Target (per AM) — HORIZONTAL STACKED BAR */}
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
+          {/* Komposisi Outlook terhadap Target (per AM) — STACKED BAR */}
+          <div className="bg-card border border-border rounded-xl overflow-hidden md:col-span-2">
             <div className="px-3 pt-3 pb-1">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <h2 className="text-xs font-display font-bold text-foreground tracking-tight">Outlook per AM</h2>
-                <div className="hidden sm:flex items-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
-                    <span className="text-[10px] font-bold text-foreground">Before</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-sm bg-violet-500" />
-                    <span className="text-[10px] font-bold text-foreground">BC</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
-                    <span className="text-[10px] font-bold text-foreground">QLOP</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-sm bg-blue-600" />
-                    <span className="text-[10px] font-bold text-foreground">F5</span>
-                  </div>
+              <h2 className="text-sm md:text-base font-display font-bold text-foreground tracking-tight">Komposisi Outlook terhadap Target (per AM)</h2>
+              <p className="text-xs text-foreground font-medium mt-0.5">1 Batang = 1 AM — Real+Base — Qualified LOP — LOP F5</p>
+              <div className="hidden sm:flex items-center gap-3 mt-1">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-sm bg-red-500" />
+                  <span className="text-[10px] font-medium text-foreground">Real+Base</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-sm bg-yellow-400" />
+                  <span className="text-[10px] font-medium text-foreground">QLOP</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-sm bg-blue-500" />
+                  <span className="text-[10px] font-medium text-foreground">F5</span>
                 </div>
               </div>
-              {/* Mobile legend — horizontal wrap */}
+              {/* Mobile legend */}
               <div className="sm:hidden flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
-                {[["bg-red-500","Before"],["bg-violet-500","BC"],["bg-amber-500","QLOP"],["bg-blue-600","F5"]].map(([c,l]) => (
+                {[["bg-red-500","Real+Base"],["bg-yellow-400","QLOP"],["bg-blue-500","F5"]].map(([c,l]) => (
                   <div key={l} className="flex items-center gap-1">
-                    <div className={"w-2 h-2 rounded-sm " + c} />
-                    <span className="text-[9px] font-bold text-foreground">{l}</span>
+                    <div className={"w-1.5 h-1.5 rounded-sm " + c} />
+                    <span className="text-[10px] font-medium text-foreground">{l}</span>
                   </div>
                 ))}
               </div>
@@ -860,16 +938,19 @@ export default function PrognosaSlide({
                   <Tooltip
                     contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontWeight: "700", fontSize: "11px", color: "hsl(var(--foreground))" }}
                     labelStyle={{ fontWeight: "900", fontSize: "11px", color: "hsl(var(--foreground))" }}
-                    formatter={(value: number, name: string) => [fmtRupiahFS(value), name === "before" ? "Before LOP" : name === "bc" ? "Billcom" : name === "qlop" ? "Qualified LOP" : "LOP F5"]}
+                    formatter={(value: number, name: string) => {
+                      const label = name === "before" ? "Real+Base" : name === "qlop" ? "QLOP" : "F5";
+                      const color = name === "before" ? "#ef4444" : name === "qlop" ? "#facc15" : "#3b82f6";
+                      return [fmtRupiahFS(value), React.createElement("span", { style: { color, fontWeight: "700" } }, label)];
+                    }}
                     labelFormatter={(_, payload) => payload && payload[0] ? (payload[0] as any).payload.fullName : ""}
                   />
                   <Bar dataKey="before" stackId="a" name="before" radius={[0, 0, 0, 0]}>
                     {barData.map((entry, index) => (
-                      <Cell key={"cell-before-" + index} fill={entry.beforeAch >= 1 ? "#ef4444" : entry.beforeAch >= 0.8 ? "#f59e0b" : "#ef4444"} />
+                      <Cell key={"cell-before-" + index} fill="#ef4444" />
                     ))}
                   </Bar>
-                  <Bar dataKey="bc" stackId="a" name="bc" fill="#8b5cf6" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="qlop" stackId="a" name="qlop" fill="#f59e0b" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="qlop" stackId="a" name="qlop" fill="#facc15" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="f5" stackId="a" name="f5" fill="#3b82f6" radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -882,7 +963,7 @@ export default function PrognosaSlide({
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-3">
             <div>
               <h2 className="text-sm font-display font-bold text-foreground tracking-tight">Revenue Bulanan</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Real (solid) vs Proyeksi Base (putus-putus) vs Target</p>
+              <p className="text-xs text-foreground font-medium mt-0.5">Real (solid) vs Proyeksi Base (putus-putus) vs Target</p>
             </div>
             <div className="flex items-center gap-3 md:gap-4 shrink-0 flex-wrap">
               <div className="flex items-center gap-1.5">
