@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, performanceDataTable, dataImportsTable, accountManagersTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, or, inArray } from "drizzle-orm";
 import { expandDivisiPerforma } from "../../shared/divisi";
 
 const router: IRouter = Router();
@@ -35,7 +35,7 @@ router.get("/performance", async (req, res): Promise<void> => {
   const activeAms = await db
     .select({ nik: accountManagersTable.nik })
     .from(accountManagersTable)
-    .where(and(eq(accountManagersTable.aktif, true), eq(accountManagersTable.role, "AM")));
+    .where(and(eq(accountManagersTable.aktif, true), inArray(accountManagersTable.role, ["ACCOUNT_MANAGER", "AM"])));
   const activeNikSet = new Set(activeAms.map(a => a.nik).filter(Boolean) as string[]);
 
   const conditions = [eq(performanceDataTable.importId, snapshotId)];
@@ -46,12 +46,17 @@ router.get("/performance", async (req, res): Promise<void> => {
       // DPS/DSS AMs have divisi='DES' in DB, use divisi_cc to identify
       conditions.push(eq(performanceDataTable.divisiCc, d));
     } else {
-      // For other divisi (LESA, GOVT), check divisi column
+      // LESA: match both DPS and DSS via divisi_cc
       if (expanded.length === 1) {
         conditions.push(eq(performanceDataTable.divisi, expanded[0]));
       } else {
-        // LESA: match either DPS or DSS via divisi_cc
-        conditions.push(eq(performanceDataTable.divisiCc, d));
+        // LESA = DPS + DSS + DES. Use divisi_cc for DPS/DSS, divisi for DES
+        conditions.push(
+          or(
+            inArray(performanceDataTable.divisiCc, ["DPS", "DSS"]),
+            eq(performanceDataTable.divisi, "DES")
+          )
+        );
       }
     }
   }

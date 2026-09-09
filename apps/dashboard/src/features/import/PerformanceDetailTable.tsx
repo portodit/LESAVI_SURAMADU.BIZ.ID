@@ -6,6 +6,19 @@ import * as XLSX from "xlsx";
 
 const PAGE_SIZE = 50;
 
+// Extract proporsi from komponen_detail JSON (per-customer, stored as string decimal 0-1)
+function getRowProporsi(row: PerformanceRow): number {
+  if (!row.komponenDetail) return 0;
+  try {
+    const parsed = JSON.parse(row.komponenDetail);
+    if (Array.isArray(parsed)) {
+      const props = parsed.map(c => Number(c.proporsi ?? 0)).filter(p => !isNaN(p));
+      return props.length > 0 ? props.reduce((a, b) => a + b, 0) / props.length : 0;
+    }
+    return Number(parsed.proporsi ?? 0);
+  } catch { return 0; }
+}
+
 export interface PerformanceRow {
   id: number;
   nik: string | null;
@@ -84,6 +97,7 @@ const COLUMNS: FilterCol[] = [
   { field: "achRate", label: "Ach %", width: "70px", align: "right", sortable: true, editable: true, editableType: "number" },
   { field: "rankAch", label: "Rank", width: "50px", align: "center", sortable: true, editable: true, editableType: "number" },
   { field: "statusWarna", label: "Status", width: "70px", align: "center", sortable: true, editable: true },
+  { field: "proporsi", label: "Proporsi (%)", width: "90px", align: "right", sortable: true, editable: true, editableType: "number" },
 ];
 
 // ─── Column Filter Popup ────────────────────────────────────────────────────────
@@ -244,6 +258,7 @@ export default function PerformanceDetailTable({ rows: initialRows, importId }: 
       case "realScaling": return num(row.realScaling);
       case "targetNgtma": return num(row.targetNgtma);
       case "realNgtma": return num(row.realNgtma);
+      case "proporsi": return getRowProporsi(row) * 100;
       default: return String((row as any)[field] ?? "");
     }
   }, [achTimeScope, achComponent]);
@@ -255,6 +270,10 @@ export default function PerformanceDetailTable({ rows: initialRows, importId }: 
       return v === 0 ? "–" : (v * 100).toFixed(1) + "%";
     }
     if (col.field === "periode") return formatPeriode(row.tahun, row.bulan);
+    if (col.field === "proporsi") {
+      const v = getRowProporsi(row) * 100;
+      return v === 0 ? "–" : v.toFixed(0) + "%";
+    }
     if (col.align === "right" && col.field !== "statusWarna") {
       return formatRupiah(num((row as any)[col.field]));
     }
@@ -393,6 +412,7 @@ export default function PerformanceDetailTable({ rows: initialRows, importId }: 
       { header: "Ach %", field: "achRate" },
       { header: "Rank", field: "rankAch" },
       { header: "Status", field: "statusWarna" },
+      { header: "Proporsi (%)", field: "proporsi" },
     ];
 
     const sheetData = data.map(row => {
@@ -407,6 +427,8 @@ export default function PerformanceDetailTable({ rows: initialRows, importId }: 
                      "targetScaling", "realScaling", "targetNgtma", "realNgtma"].includes(col.field)) {
           const v = num((row as any)[col.field]);
           rowData[col.header] = v === 0 ? null : v;
+        } else if (col.field === "proporsi") {
+          rowData[col.header] = (() => { const v = getRowProporsi(row) * 100; return v === 0 ? null : v; })();
         } else {
           rowData[col.header] = (row as any)[col.field] ?? "";
         }

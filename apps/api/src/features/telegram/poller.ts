@@ -1,8 +1,9 @@
-import { db, accountManagersTable, appSettingsTable, telegramBotUsersTable, telegramAccessCodesTable } from "@workspace/db";
-import { eq, and, gt, inArray } from "drizzle-orm";
+import { db, accountManagersTable, appSettingsTable, telegramBotUsersTable, telegramAccessCodesTable, dataImportsTable } from "@workspace/db";
+import { eq, and, gt, inArray, desc } from "drizzle-orm";
 import { sendToTelegram, answerCallbackQuery, greetingByTime, buildTelegramMessages, getAvailablePerfPeriods } from "./service";
 import { chatWithGemini, generateBasaBasi } from "./ai";
 import { logger } from "../../shared/logger";
+import { getPublicBaseUrl } from "../../shared/publicUrl";
 import bcrypt from "bcryptjs";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -70,32 +71,184 @@ async function upsertBotUser(user: BotUser) {
   }
 }
 
-const MAIN_KEYBOARD_AM = {
-  inline_keyboard: [
-    [
-      { text: "📊 Performansi AM", callback_data: "/performansi" },
+// ── Period extraction from filename ───────────────────────────────────────────
+function extractPeriodFromFilename(filename: string): string | null {
+  // Try YYYYMMDD first (e.g., 20260904) — find 8 consecutive digits, check if valid as year-month-day
+  const all8 = [...filename.matchAll(/(\d{8})/g)];
+  for (const m of all8) {
+    const s = m[1];
+    const year = parseInt(s.slice(0, 4));
+    const month = parseInt(s.slice(4, 6));
+    const day = parseInt(s.slice(6, 8));
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  // Try DDMMYYYY (e.g., 04092026)
+  for (const m of all8) {
+    const s = m[1];
+    const day = parseInt(s.slice(0, 2));
+    const month = parseInt(s.slice(2, 4));
+    const year = parseInt(s.slice(4, 8));
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2000) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  return null;
+}
+
+// ── Download file from Telegram ───────────────────────────────────────────────
+async function downloadTelegramFile(token: string, fileId: string): Promise<Buffer> {
+  const getFileResp = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+  const getFileData = await getFileResp.json() as { ok: boolean; result?: { file_path?: string } };
+  if (!getFileData.ok || !getFileData.result?.file_path) {
+    throw new Error("Gagal获取文件信息");
+  }
+  const filePath = getFileData.result.file_path;
+  const downloadUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
+  const fileResp = await fetch(downloadUrl);
+  const arrayBuffer = await fileResp.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+// ── Process import (shared by confirm and overwrite handlers) ───────────────────
+async function doProcessImport(
+  token: string,
+  chatId: string,
+  state: ImportState,
+  fileData: string,
+  linkedAm: { nama: string; role: string },
+  forceOverwrite = false,
+) {
+  logger.info({ chatId, importType: state.importType, forceOverwrite }, "doProcessImport: START");
+  const typeLabel = state.importType === "performance" ? "Performance"
+    : state.importType === "funnel" ? "Sales Funnel" : "Sales Activity";
+  const endpoint = state.importType === "performance"
+    ? "/import-performance"
+    : state.importType === "funnel"
+      ? "/import-funnel"
+      : "/import-activity";
+
+  const secret = process.env["TELEGRAM_IMPORT_SECRET"] || "telegram-bot-internal-secret-2024";
+  const internalBase = process.env["PUBLIC_API_URL"] || "http://localhost:8000";
+  const domain = getPublicBaseUrl();
+
+  const dbType = state.importType === "performance" ? "performance" : state.importType === "funnel" ? "funnel" : "activity";
+
+  const PROGRESS_KEYBOARD = {
+    inline_keyboard: [
+      [{ text: "⏳ Memproses...", callback_data: "import:processing" }],
     ],
-    [
-      { text: "📋 Sales Funneling", callback_data: "/funneling" },
-      { text: "📅 Sales Activity",  callback_data: "/activity"  },
-    ],
-  ],
-};
+  };
+
+  await sendToTelegram(token, chatId,
+    `📥 *Import ${typeLabel} — Sedang Berlangsung*\n\n` +
+    `⏳ Memproses file...\n\n` +
+    `_Mohon tunggu sebentar ya kak 🙏_`,
+    PROGRESS_KEYBOARD
+  ).catch(() => {});
+
+  try {
+    const apiResp = await fetch(`${internalBase}/api/internal${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-telegram-secret": secret },
+      body: JSON.stringify({
+        fileData,
+        snapshotDate: state.extractedDate || undefined,
+        period: state.period || undefined,
+        forceOverwrite,
+      }),
+    });
+
+    const apiData = await apiResp.json() as {
+      error?: string; rowsImported?: number; rows?: number; conflict?: boolean; importId?: number;
+    };
+
+    if (apiData.conflict) {
+      // API found existing snapshot — show overwrite/cancel buttons
+      const existingMsg = apiData.error || `Sudah ada data ${typeLabel} periode ${state.period} yang diimport sebelumnya.`;
+      const OVERWRITE_KEYBOARD = {
+        inline_keyboard: [
+          [{ text: "✅ Ya, Timpa Snapshot Lama", callback_data: "import:overwrite" }],
+          [{ text: "❌ Batalkan", callback_data: "import:cancel" }],
+        ],
+      };
+      await sendToTelegram(token, chatId,
+        `⚠️ *Snapshot Sudah Ada*\n\n${existingMsg}\n\n` +
+        `⚠️ Mengimpor ulang akan *MENIMPA* snapshot lama.\n\n` +
+        `Lanjutkan timpa snapshot lama kak *${linkedAm.nama.split(" ")[0]}*? 👇`,
+        OVERWRITE_KEYBOARD
+      ).catch(() => {});
+      state.step = "waiting_overwrite_confirm";
+      importState.set(chatId, state);
+      return;
+    }
+    if (!apiResp.ok) {
+      await sendToTelegram(token, chatId,
+        `❌ *Gagal Import ${typeLabel}*\n\n` +
+        `${apiData.error || "Terjadi kesalahan saat memproses file."}\n\n` +
+        `Silakan coba lagi atau hubungi admin.`,
+        getMainKeyboard(linkedAm.role)
+      ).catch(() => {});
+    } else {
+      const rows = apiData.rowsImported ?? apiData.rows ?? 0;
+      const snapId = apiData.importId;
+      const snapUrl = snapId ? `${domain}/import/detail/${dbType}/${snapId}` : `${domain}/import`;
+      const presUrl = snapId ? `${domain}/presentation?type=${dbType}&snapshot=${snapId}` : `${domain}/presentation`;
+      const typeLabelLower = state.importType === "performance" ? "Performansi AM" : state.importType === "funnel" ? "Sales Funnel" : "Sales Activity";
+      const snapName = state.period
+        ? `${typeLabelLower} — ${state.period}`
+        : `${typeLabelLower}`;
+
+      const SUCCESS_KEYBOARD = {
+        inline_keyboard: [
+          [{ text: "📋 Lihat Snapshot", url: snapUrl }],
+          [{ text: "📊 Lihat Visualisasi", url: presUrl }],
+          [{ text: "◀️ Kembali ke Menu", callback_data: "/import" }],
+        ],
+      };
+
+      await sendToTelegram(token, chatId,
+        `✅ *Import ${typeLabel} Berhasil!*\n\n` +
+        `📋 *Nama Snapshot:* ${snapName}\n` +
+        `📊 *Tipe:* ${typeLabelLower}\n` +
+        `📦 *Total Baris:* *${rows.toLocaleString("id-ID")}* baris data\n\n` +
+        `Silakan pilih aksi di bawah ya kak 🙏`,
+        SUCCESS_KEYBOARD
+      ).catch(() => {});
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to call internal import API from Telegram");
+    await sendToTelegram(token, chatId,
+      `❌ *Gagal Import ${typeLabel}*\n\n` +
+      `Terjadi kesalahan koneksi ke server. Silakan coba lagi nanti.`,
+      getMainKeyboard(linkedAm.role)
+    ).catch(() => {});
+  }
+
+  importState.delete(chatId);
+  funnelFileData.delete(chatId);
+  activityFileData.delete(chatId);
+}
 
 const MAIN_KEYBOARD_ADMIN = {
   inline_keyboard: [
     [
-      { text: "📥 Import Data",   callback_data: "/import"   },
-      { text: "📊 Akses Data",     callback_data: "/data"      },
+      { text: "📥 Impor Data",          callback_data: "/import"   },
+      { text: "🔓 Putuskan Koneksi",   callback_data: "/logout"  },
     ],
     [
-      { text: "🌐 Akses Website", callback_data: "/website"   },
+      { text: "📋 List Data Snapshot",  callback_data: "/list"    },
     ],
   ],
 };
 
+const MAIN_KEYBOARD_EMPTY: typeof MAIN_KEYBOARD_ADMIN = { inline_keyboard: [] };
+
 function getMainKeyboard(role: string) {
-  return role === "ACCOUNT_MANAGER" ? MAIN_KEYBOARD_AM : MAIN_KEYBOARD_ADMIN;
+  return role === "ADMIN" || role === "MANAGER" || role === "OFFICER"
+    ? MAIN_KEYBOARD_ADMIN
+    : MAIN_KEYBOARD_EMPTY;
 }
 
 const PERF_NAV_KEYBOARD = {
@@ -123,6 +276,120 @@ const VERIF_CODE_KEYBOARD = {
 };
 
 const MONTH_NAMES = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+// ── Import flow state ─────────────────────────────────────────────────────────
+type ImportStep = "idle" | "waiting_period" | "waiting_file" | "waiting_confirm" | "processing" | "waiting_drive_link" | "waiting_overwrite_confirm";
+interface ImportState {
+  step: ImportStep;
+  importType: "performance" | "funnel" | "activity" | "prognosa";
+  period: string;
+  extractedDate?: string;
+}
+const importState = new Map<string, ImportState>();
+const funnelFileData = new Map<string, string>();
+const activityFileData = new Map<string, string>();
+
+const FUNNEL_BACK_KEYBOARD = {
+  inline_keyboard: [[{ text: "◀️ Kembali ke Menu Import", callback_data: "/import" }]],
+};
+
+// ── Snapshot selection flow state ───────────────────────────────────────────────
+type SnapshotStep = "idle" | "choose_type" | "choose_snapshot" | "snapshot_detail";
+interface SnapshotState {
+  step: SnapshotStep;
+  dataType: "performance" | "funnel" | "activity";
+  snapshots: Array<{
+    id: number; period: string; snapshotDate: string | null;
+    rowsImported: number | null; sourceUrl: string | null; createdAt: string | null;
+  }>;
+  selectedIndex: number;
+}
+const snapshotState = new Map<string, SnapshotState>();
+
+// Keyboard: choose data type
+const LIST_SNAPSHOT_TYPE_KEYBOARD = {
+  inline_keyboard: [
+    [{ text: "📊 Performansi AM", callback_data: "snap:perf" }],
+    [{ text: "📋 Sales Funnel", callback_data: "snap:funnel" }],
+    [{ text: "📅 Sales Activity", callback_data: "snap:activity" }],
+    [{ text: "◀️ Menu Utama", callback_data: "nav:main" }],
+  ],
+};
+
+// Build snapshot list keyboard
+function buildSnapshotListKeyboard(snaps: SnapshotState["snapshots"], dataType: string) {
+  const typeLabel = dataType === "performance" ? "Performansi AM" : dataType === "funnel" ? "Sales Funnel" : "Sales Activity";
+  const rows: any[] = [];
+  for (const snap of snaps) {
+    const date = snap.snapshotDate
+      ? new Date(snap.snapshotDate).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
+      : (snap.period || "-");
+    rows.push({ text: `📅 ${date} — ${typeLabel}`, callback_data: `snap:select:${dataType}:${snap.id}` });
+  }
+  const inline_keyboard = rows.map(r => [r]);
+  inline_keyboard.push([{ text: "◀️ Kembali", callback_data: "snap:back_to_list" }]);
+  return { inline_keyboard };
+}
+
+// Build snapshot list message
+async function buildSnapshotListMsg(dataType: "performance" | "funnel" | "activity"): Promise<{ text: string; keyboard: any; rows: SnapshotState["snapshots"] }> {
+  const dbType = dataType === "performance" ? "performance" : dataType === "funnel" ? "funnel" : "activity";
+  const rows = await db.select({
+    id: dataImportsTable.id, period: dataImportsTable.period,
+    snapshotDate: dataImportsTable.snapshotDate, rowsImported: dataImportsTable.rowsImported,
+    sourceUrl: dataImportsTable.sourceUrl, createdAt: dataImportsTable.createdAt,
+  }).from(dataImportsTable).where(eq(dataImportsTable.type, dbType)).orderBy(desc(dataImportsTable.id));
+  const typeLabel = dataType === "performance" ? "Performansi AM" : dataType === "funnel" ? "Sales Funnel" : "Sales Activity";
+  if (rows.length === 0) {
+    return {
+      text: `📋 *Daftar Snapshot ${typeLabel}*\n\nBelum ada data ${typeLabel} yang diimport kak. Silakan import terlebih dahulu melalui menu /import.`,
+      keyboard: { inline_keyboard: [[{ text: "◀️ Menu Utama", callback_data: "nav:main" }]] }, rows: [],
+    };
+  }
+  const keyboard = buildSnapshotListKeyboard(rows, dataType);
+  return { text: `📋 *Daftar Snapshot ${typeLabel}*\n\nPilih snapshot yang ingin dilihat:`, keyboard, rows };
+}
+
+// Build snapshot detail message
+function buildSnapshotDetailMsg(snap: SnapshotState["snapshots"][0], dataType: string, idx: number): string {
+  const typeLabel = dataType === "performance" ? "Performansi AM" : dataType === "funnel" ? "Sales Funnel" : "Sales Activity";
+  const date = snap.snapshotDate ? new Date(snap.snapshotDate).toLocaleDateString("id-ID", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }) : "-";
+  const rows = snap.rowsImported != null ? `${snap.rowsImported.toLocaleString("id-ID")} baris data` : "belum diketahui";
+  const source = snap.sourceUrl ? `\n📎 Sumber: ${snap.sourceUrl}` : "";
+  return (
+    `✅ *Snapshot #${idx} Dipilih*\n\n` +
+    `📊 Tipe Data: *${typeLabel}*\n` +
+    `📅 Tanggal Snapshot: *${date}*\n` +
+    `📦 Jumlah Baris: *${rows}*${source}\n\n` +
+    `Silakan pilih aksi yang ingin dilakukan di bawah ya kak 👇`
+  );
+}
+
+// Fetch snapshots helper
+async function fetchSnapshots(dataType: "performance" | "funnel" | "activity"): Promise<SnapshotState["snapshots"]> {
+  const dbType = dataType === "performance" ? "performance" : dataType === "funnel" ? "funnel" : "activity";
+  const rows = await db.select({
+    id: dataImportsTable.id, period: dataImportsTable.period,
+    snapshotDate: dataImportsTable.snapshotDate, rowsImported: dataImportsTable.rowsImported,
+    sourceUrl: dataImportsTable.sourceUrl, createdAt: dataImportsTable.createdAt,
+  }).from(dataImportsTable).where(eq(dataImportsTable.type, dbType)).orderBy(desc(dataImportsTable.id));
+  return rows.map(r => ({
+    id: r.id, period: r.period ?? "", snapshotDate: r.snapshotDate?.toString() ?? null,
+    rowsImported: r.rowsImported, sourceUrl: r.sourceUrl ?? null, createdAt: r.createdAt?.toString() ?? null,
+  }));
+}
+
+// Extract date from funnel filename
+function extractDateFromFunnelFilename(fileName: string): string | null {
+  const matches = fileName.match(/\d{8}/g);
+  if (!matches || matches.length === 0) return null;
+  const candidate = matches[matches.length - 1];
+  const year = parseInt(candidate.slice(0, 4), 10);
+  const month = parseInt(candidate.slice(4, 6), 10);
+  const day = parseInt(candidate.slice(6, 8), 10);
+  if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12 && day >= 1 && day <= 31) return candidate;
+  return null;
+}
 
 // ── Contact list builder (ADMIN, OFFICER, MANAGER who are Telegram-linked) ──
 async function buildContactList(): Promise<string> {
@@ -206,21 +473,14 @@ async function buildWelcomeAdmin(namaLengkap: string, role: string): Promise<str
   return (
     `Hai kak *${namaLengkap}*! 👋 Selamat ${greeting}~\n\n` +
     `Selamat datang di *BOT LESA VI — Witel Suramadu TREG 3!* 🏢\n\n` +
-    `Sebagai *${roleLabel}*, melalui bot ini kamu bisa mengelola dan mengakses data operasional LESA VI Witel Suramadu — mulai dari data Performansi Revenue Account Manager, Sales Funneling, hingga Sales Activity.\n\n` +
-    `Yuk mulai dari menu di bawah ini kak 👇\n\n` +
+    `Sebagai *${roleLabel}*, kamu bisa mengelola dan mengakses data operasional melalui menu di bawah ini.\n\n` +
     `Pilih menu di bawah untuk akses fitur:`
   );
 }
 
-// Fallback: pesan tidak dikenali (singkat, bukan full welcome)
-function buildFallback(namaLengkap: string): string {
-  const greeting = greetingByTime();
-  return (
-    `Maaf kak, aku belum paham maksud pesannya 🙏\n\n` +
-    `Ketik /start untuk lihat menu utama, atau pilih salah satu menu di bawah ini ya:\n\n` +
-    `Hai kak *${namaLengkap}*! 👋 Selamat ${greeting}~\n\n` +
-    `Pilih menu untuk akses fitur:`
-  );
+// Fallback: pesan tidak dikenali (hanya 1 pesan singkat, tanpa welcome + tanpa keyboard)
+function buildFallback(): string {
+  return `Maaf kak, aku belum paham maksud pesannya 🙏\n\nKetik /start untuk mengakses menu Utama`;
 }
 
 // First-time unlinked /start// First-time unlinked /start
@@ -308,6 +568,7 @@ export async function pollOnce() {
         logger.info({ updateId: update.update_id, chatId: m.chat.id, text: m.text, from: m.from?.first_name }, "INCOMING MESSAGE");
       } else if (update.callback_query) {
         const cb = update.callback_query;
+        console.log(`[TELEGRAM] INCOMING CALLBACK: data="${cb.data}", from=${cb.from?.first_name}, chatId=${cb.message?.chat?.id || cb.from?.id}`);
         logger.info({ updateId: update.update_id, cbData: cb.data, from: cb.from?.first_name, msgChatId: cb.message?.chat?.id }, "INCOMING CALLBACK");
       }
 
@@ -447,10 +708,317 @@ export async function pollOnce() {
               : await buildWelcomeAdmin(linkedAm.nama, linkedAm.role);
             await sendToTelegram(token, cbChatId, text, getMainKeyboard(linkedAm.role)).catch(() => {});
           } else {
-            await sendToTelegram(token, cbChatId, `Ketik /start untuk memulai.`, MAIN_KEYBOARD_ADMIN).catch(() => {});
+            await sendToTelegram(token, cbChatId, `Ketik /start untuk memulai.`, MAIN_KEYBOARD_EMPTY).catch(() => {});
           }
           continue;
         }
+
+        // ── /list — show list snapshot type menu ─────────────────────────
+        if (cbData === "/list") {
+          const [linkedAm] = await db.select().from(accountManagersTable)
+            .where(eq(accountManagersTable.telegramChatId, cbChatId));
+          if (!linkedAm || linkedAm.role === "ACCOUNT_MANAGER") {
+            await sendToTelegram(token, cbChatId, `Fitur ini hanya tersedia untuk *ADMIN*, *OFFICER*, dan *MANAGER*.`).catch(() => {});
+            continue;
+          }
+          const amFirstName = linkedAm.nama.split(" ")[0];
+          snapshotState.delete(cbChatId);
+          await sendToTelegram(token, cbChatId,
+            `📋 *List Data Snapshot*\n\nPilih tipe data yang ingin dilihat kak *${amFirstName}*:`, LIST_SNAPSHOT_TYPE_KEYBOARD
+          ).catch(() => {});
+          continue;
+        }
+
+        // ── snap:back_to_list ───────────────────────────────────────────
+        if (cbData === "snap:back_to_list") {
+          const state = snapshotState.get(cbChatId);
+          if (!state) {
+            await sendToTelegram(token, cbChatId, `Silakan mulai dari menu *List Data Snapshot* kak.`, LIST_SNAPSHOT_TYPE_KEYBOARD).catch(() => {});
+            continue;
+          }
+          const { text, keyboard } = await buildSnapshotListMsg(state.dataType);
+          state.step = "choose_snapshot";
+          snapshotState.set(cbChatId, state);
+          await sendToTelegram(token, cbChatId, text, keyboard).catch(() => {});
+          continue;
+        }
+
+        // ── snap:perf / snap:funnel / snap:activity ──────────────────────
+        if (["snap:perf", "snap:funnel", "snap:activity"].includes(cbData)) {
+          const dataType = cbData === "snap:perf" ? "performance" : cbData === "snap:funnel" ? "funnel" : "activity";
+          try {
+            const { text, keyboard, rows } = await buildSnapshotListMsg(dataType);
+            snapshotState.set(cbChatId, { step: "choose_snapshot", dataType, snapshots: rows, selectedIndex: 0 });
+            await sendToTelegram(token, cbChatId, text, keyboard).catch(() => {});
+          } catch (e: any) {
+            logger.error({ err: e, dataType, cbData }, "snap:buildSnapshotListMsg failed");
+          }
+          continue;
+        }
+
+        // ── snap:select ──────────────────────────────────────────────────
+        if (cbData.startsWith("snap:select:")) {
+          const parts = cbData.split(":");
+          const dataType = parts[2] as "performance" | "funnel" | "activity";
+          const snapId = parseInt(parts[3], 10);
+          if (isNaN(snapId)) { continue; }
+          const snaps = await db.select().from(dataImportsTable)
+            .where(and(eq(dataImportsTable.id, snapId), eq(dataImportsTable.type, dataType))).limit(1);
+          if (!snaps.length) {
+            await sendToTelegram(token, cbChatId, `❌ Snapshot tidak ditemukan.`, LIST_SNAPSHOT_TYPE_KEYBOARD).catch(() => {});
+            continue;
+          }
+          const snap = snaps[0];
+          const typeLabel = dataType === "performance" ? "Performansi AM" : dataType === "funnel" ? "Sales Funnel" : "Sales Activity";
+          const date = snap.snapshotDate
+            ? new Date(snap.snapshotDate).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
+            : "-";
+          const rows = snap.rowsImported != null ? `${snap.rowsImported.toLocaleString("id-ID")} baris data` : "belum diketahui";
+          const domain = getPublicBaseUrl();
+
+          const msg =
+            `✅ *Snapshot Dipilih*\n\n` +
+            `📊 Tipe Data: *${typeLabel}*\n` +
+            `📅 Tanggal: *${date}*\n` +
+            `📦 Jumlah: *${rows}*\n\n` +
+            `🔗 *Link Akses:*\n` +
+            `• Akses Data: ${domain}/import/detail/${dataType}/${snapId}\n` +
+            `• Lihat Visualisasi: ${domain}/presentation?type=${dataType}&snapshot=${snapId}\n\n` +
+            `Silakan pilih aksi di bawah ya kak 👇`;
+
+          const keyboard = {
+            inline_keyboard: [
+              [
+                { text: "🗑 Hapus Data", callback_data: `snap:delete:${dataType}:${snapId}` },
+                { text: "◀️ Pilih Snapshot Lain", callback_data: "snap:back_to_list" },
+              ],
+            ],
+          };
+          await sendToTelegram(token, cbChatId, msg, keyboard).catch(() => {});
+          continue;
+        }
+
+        // ── snap:delete ─────────────────────────────────────────────────
+        if (cbData.startsWith("snap:delete:")) {
+          const parts = cbData.split(":");
+          const dataType = parts[2];
+          const snapId = parseInt(parts[3], 10);
+          if (isNaN(snapId)) { continue; }
+          const snap = await db.select().from(dataImportsTable)
+            .where(and(eq(dataImportsTable.id, snapId), eq(dataImportsTable.type, dataType))).limit(1);
+          if (!snap.length) {
+            await sendToTelegram(token, cbChatId, `❌ Snapshot tidak ditemukan.`, LIST_SNAPSHOT_TYPE_KEYBOARD).catch(() => {});
+            continue;
+          }
+          const date = snap[0].snapshotDate
+            ? new Date(snap[0].snapshotDate).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
+            : "-";
+          const CONFIRM_DELETE_KEYBOARD = {
+            inline_keyboard: [
+              [
+                { text: "⚠️ Ya, Hapus", callback_data: `snap:confirm_delete:${dataType}:${snapId}` },
+                { text: "❌ Batal", callback_data: "snap:back_to_list" },
+              ],
+            ],
+          };
+          await sendToTelegram(token, cbChatId,
+            `⚠️ *Konfirmasi Hapus Data*\n\nYakin ingin menghapus snapshot?\n\n📅 Tanggal: *${date}*\n📊 Tipe: *${dataType}*\n\nData yang dihapus tidak dapat dikembalikan.`, CONFIRM_DELETE_KEYBOARD
+          ).catch(() => {});
+          continue;
+        }
+
+        // ── snap:confirm_delete ─────────────────────────────────────────
+        if (cbData.startsWith("snap:confirm_delete:")) {
+          const parts = cbData.split(":");
+          const dataType = parts[2];
+          const snapId = parseInt(parts[3], 10);
+          if (isNaN(snapId)) { continue; }
+          const snap = await db.select().from(dataImportsTable)
+            .where(and(eq(dataImportsTable.id, snapId), eq(dataImportsTable.type, dataType))).limit(1);
+          if (!snap.length) {
+            await sendToTelegram(token, cbChatId, `❌ Snapshot tidak ditemukan.`, LIST_SNAPSHOT_TYPE_KEYBOARD).catch(() => {});
+            continue;
+          }
+          await db.delete(dataImportsTable).where(eq(dataImportsTable.id, snapId));
+          await sendToTelegram(token, cbChatId, `✅ Snapshot berhasil dihapus.`).catch(() => {});
+          continue;
+        }
+
+        // ── /import — show import type selection ─────────────────────────
+        if (cbData === "/import") {
+          const [linkedAm] = await db.select().from(accountManagersTable)
+            .where(eq(accountManagersTable.telegramChatId, cbChatId));
+          if (!linkedAm || linkedAm.role === "ACCOUNT_MANAGER") {
+            await sendToTelegram(token, cbChatId, `Fitur ini hanya tersedia untuk *ADMIN*, *OFFICER*, dan *MANAGER*.`).catch(() => {});
+            continue;
+          }
+          importState.set(cbChatId, { step: "idle", importType: "funnel", period: "" });
+          const IMPORT_TYPE_KEYBOARD = {
+            inline_keyboard: [
+              [{ text: "📊 Import Performance", callback_data: "import:type:performance" }],
+              [{ text: "🔻 Import Sales Funnel", callback_data: "import:type:funnel" }],
+              [{ text: "📅 Import Sales Activity", callback_data: "import:type:activity" }],
+              [{ text: "◀️ Menu Utama", callback_data: "nav:main" }],
+            ],
+          };
+          await sendToTelegram(token, cbChatId,
+            `📥 *Import Data*\n\nPilih tipe data yang ingin diimport kak *${linkedAm.nama.split(" ")[0]}*:`,
+            IMPORT_TYPE_KEYBOARD
+          ).catch(() => {});
+          continue;
+        }
+
+        // ── /website — send website link ─────────────────────────────────
+        if (cbData === "/website") {
+          const domain = getPublicBaseUrl();
+          await sendToTelegram(token, cbChatId,
+            `🌐 *Akses Website*\n\nKlik link berikut untuk membuka dashboard:\n\n${domain}`, MAIN_KEYBOARD_ADMIN
+          ).catch(() => {});
+          continue;
+        }
+
+        // ── import:type:* — set import type and ask for file ─────────────
+        if (cbData.startsWith("import:type:")) {
+          const type = cbData.split(":")[2] as "performance" | "funnel" | "activity";
+          const [linkedAm] = await db.select().from(accountManagersTable)
+            .where(eq(accountManagersTable.telegramChatId, cbChatId));
+          if (!linkedAm || linkedAm.role === "ACCOUNT_MANAGER") {
+            await sendToTelegram(token, cbChatId, `Fitur ini hanya tersedia untuk *ADMIN*, *OFFICER*, dan *MANAGER*.`).catch(() => {});
+            continue;
+          }
+          const state: ImportState = { step: "waiting_file", importType: type, period: "" };
+          importState.set(cbChatId, state);
+          funnelFileData.delete(cbChatId);
+          activityFileData.delete(cbChatId);
+          const typeLabel = type === "performance" ? "Performance" : type === "funnel" ? "Sales Funnel" : "Sales Activity";
+          const IMPORT_FILE_KEYBOARD = {
+            inline_keyboard: [
+              [{ text: "◀️ Kembali ke Menu Import", callback_data: "/import" }],
+              [{ text: "🏠 Menu Utama", callback_data: "nav:main" }],
+            ],
+          };
+          await sendToTelegram(token, cbChatId,
+            `📥 *Import ${typeLabel}*\n\nKirim file *Excel (.xlsx)* atau *CSV* yang ingin diimport kak *${linkedAm.nama.split(" ")[0]}*.\n\nPastikan nama file mengandung periode data (format: *DDMMYYYY* atau *YYYYMMDD*) ya kak.`,
+            IMPORT_FILE_KEYBOARD
+          ).catch(() => {});
+          continue;
+        }
+
+        // ── import:confirm — process the uploaded file ─────────────────────
+        if (cbData === "import:confirm") {
+          console.log(`[DEBUG] import:confirm received! cbChatId=${cbChatId}, updateId=${update.update_id}`);
+          const [linkedAm] = await db.select().from(accountManagersTable)
+            .where(eq(accountManagersTable.telegramChatId, cbChatId));
+          if (!linkedAm || linkedAm.role === "ACCOUNT_MANAGER") {
+            await sendToTelegram(token, cbChatId, `Fitur ini hanya tersedia untuk *ADMIN*, *OFFICER*, dan *MANAGER*.`).catch(() => {});
+            continue;
+          }
+
+          const state = importState.get(cbChatId);
+          if (!state) {
+            console.error(`[IMPORT DEBUG] importState keys: ${JSON.stringify([...importState.keys()])}`);
+            await sendToTelegram(token, cbChatId, `❌ Sesi import tidak ditemukan (state=null). ChatID: ${cbChatId}. Silakan mulai ulang dari menu *Impor Data*.`, getMainKeyboard(linkedAm.role)).catch(() => {});
+            continue;
+          }
+          if (state.step !== "waiting_confirm") {
+            console.error(`[IMPORT DEBUG] state found but step=${state.step}, expected=waiting_confirm`);
+            await sendToTelegram(token, cbChatId, `❌ Sesi import tidak ditemukan. Step: ${state.step}. Silakan mulai ulang dari menu *Impor Data*.`, getMainKeyboard(linkedAm.role)).catch(() => {});
+            continue;
+          }
+
+          // Get file data from storage
+          const fileKey = state.importType === "activity" ? activityFileData : funnelFileData;
+          const fileData = fileKey.get(cbChatId);
+          if (!fileData) {
+            await sendToTelegram(token, cbChatId, `❌ File tidak ditemukan. Silakan upload ulang.`, getMainKeyboard(linkedAm.role)).catch(() => {});
+            continue;
+          }
+
+          const typeLabel = state.importType === "performance" ? "Performance" : state.importType === "funnel" ? "Sales Funnel" : "Sales Activity";
+          const dbType = state.importType === "performance" ? "performance" : state.importType === "funnel" ? "funnel" : "activity";
+
+          // ── Check for existing snapshot ──────────────────────────────────
+          const importPeriod = state.period || "";
+          const [existingSnap] = await db.select().from(dataImportsTable)
+            .where(and(eq(dataImportsTable.type, dbType), eq(dataImportsTable.period, importPeriod)));
+
+          if (existingSnap) {
+            // Ask user: overwrite or cancel
+            const existingDate = existingSnap.createdAt
+              ? new Date(existingSnap.createdAt).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })
+              : "-";
+            const existingRows = existingSnap.rowsImported ?? 0;
+
+            state.step = "waiting_overwrite_confirm";
+            importState.set(cbChatId, state);
+
+            const OVERWRITE_KEYBOARD = {
+              inline_keyboard: [
+                [{ text: "✅ Ya, Timpa Snapshot Lama", callback_data: "import:overwrite" }],
+                [{ text: "❌ Batalkan", callback_data: "import:cancel" }],
+              ],
+            };
+
+            await sendToTelegram(token, cbChatId,
+              `⚠️ *Snapshot Sudah Ada*\n\n` +
+              `Untuk tipe *${typeLabel}* periode *${importPeriod}*, sudah ada snapshot yang diimport sebelumnya:\n\n` +
+              `📅 Tanggal import : *${existingDate}*\n` +
+              `📦 Jumlah baris   : *${existingRows}* baris\n\n` +
+              `⚠️ Mengimpor ulang akan *MENIMPA* snapshot lama.\n\n` +
+              `Lanjutkan timpa snapshot lama kak *${linkedAm.nama.split(" ")[0]}*? 👇`,
+              OVERWRITE_KEYBOARD
+            ).catch(() => {});
+            // return NOT continue — we must not fall through to doProcessImport
+            return;
+          }
+
+          // ── No existing snapshot — proceed directly ─────────────────────
+          await doProcessImport(token, cbChatId, state, fileData, linkedAm);
+          continue;
+        }
+
+        // ── import:overwrite — proceed with force overwrite ───────────────
+        if (cbData === "import:overwrite") {
+          const [linkedAm] = await db.select().from(accountManagersTable)
+            .where(eq(accountManagersTable.telegramChatId, cbChatId));
+          if (!linkedAm || linkedAm.role === "ACCOUNT_MANAGER") {
+            await sendToTelegram(token, cbChatId, `Fitur ini hanya tersedia untuk *ADMIN*, *OFFICER*, dan *MANAGER*.`).catch(() => {});
+            continue;
+          }
+
+          const state = importState.get(cbChatId);
+          if (!state || state.step !== "waiting_overwrite_confirm") {
+            await sendToTelegram(token, cbChatId, `❌ Sesi import tidak ditemukan. Silakan mulai ulang dari menu *Impor Data*.`, getMainKeyboard(linkedAm.role)).catch(() => {});
+            continue;
+          }
+
+          const fileKey = state.importType === "activity" ? activityFileData : funnelFileData;
+          const fileData = fileKey.get(cbChatId);
+          if (!fileData) {
+            await sendToTelegram(token, cbChatId, `❌ File tidak ditemukan.`, getMainKeyboard(linkedAm.role)).catch(() => {});
+            continue;
+          }
+
+          await doProcessImport(token, cbChatId, state, fileData, linkedAm, true);
+          continue;
+        }
+
+        // ── import:cancel — cancel import ─────────────────────────────────
+        if (cbData === "import:cancel") {
+          const [linkedAm] = await db.select().from(accountManagersTable)
+            .where(eq(accountManagersTable.telegramChatId, cbChatId));
+          importState.delete(cbChatId);
+          funnelFileData.delete(cbChatId);
+          activityFileData.delete(cbChatId);
+          await sendToTelegram(token, cbChatId,
+            `❌ *Import Dibatalkan*\n\nImport telah dibatalkan kak *${linkedAm?.nama.split(" ")[0] || "Kak"}*.\n\n` +
+            `Silakan mulai ulang kapan saja melalui menu *Impor Data*.`,
+            linkedAm ? getMainKeyboard(linkedAm.role) : undefined
+          ).catch(() => {});
+          continue;
+        }
+
+        continue;
 
         continue;
       }
@@ -470,6 +1038,76 @@ export async function pollOnce() {
         lastMessage: text.slice(0, 80),
         lastSeen: new Date().toISOString(),
       });
+
+      // ── Document / file handling — import flow ───────────────────────────
+      const doc = (msg as any).document as { file_id: string; file_name?: string } | undefined;
+      if (doc) {
+        const state = importState.get(chatId);
+        if (state?.step === "waiting_file") {
+          try {
+            await sendToTelegram(token, chatId,
+              `📥 *File Diterima!*\n\n` +
+              `⏳ Mendownload file dari Telegram...\n\n` +
+              `_Sabarin sebentar ya kak_`
+            ).catch(() => {});
+
+            const [linkedAm] = await db.select().from(accountManagersTable)
+              .where(eq(accountManagersTable.telegramChatId, chatId));
+
+            const filename = doc.file_name || "file";
+            const buffer = await downloadTelegramFile(token, doc.file_id);
+            const base64 = buffer.toString("base64");
+
+            const extractedPeriod = extractPeriodFromFilename(filename);
+            const amFirstName = linkedAm?.nama.split(" ")[0] || "Kak";
+
+            if (!extractedPeriod) {
+              await sendToTelegram(token, chatId,
+                `⚠️ *Nama File Tidak Mengandung Tanggal*\n\n` +
+                `Bot tidak bisa mendeteksi periode dari nama file:\n*${filename}*\n\n` +
+                `Pastikan nama file mengandung tanggal dengan format *DDMMYYYY* atau *YYYYMMDD* ya kak *${amFirstName}*. Silakan upload ulang filenya kak.`
+              ).catch(() => {});
+              continue;
+            }
+
+            // Store file data and period
+            const fileKey = state.importType === "activity" ? activityFileData : funnelFileData;
+            fileKey.set(chatId, base64);
+            state.extractedDate = extractedPeriod;
+            state.period = extractedPeriod.replace(/-/g, "");
+            state.step = "waiting_confirm";
+            importState.set(chatId, state);
+
+            const typeLabel = state.importType === "performance" ? "Performance" : state.importType === "funnel" ? "Sales Funnel" : "Sales Activity";
+            const [year, month, day] = extractedPeriod.split("-");
+            const monthName = MONTH_NAMES[parseInt(month)] || month;
+            const displayDate = `${day} ${monthName} ${year}`;
+
+            const CONFIRM_KEYBOARD = {
+              inline_keyboard: [
+                [{ text: "✅ Ya, Proses Import", callback_data: "import:confirm" }],
+                [{ text: "◀️ Kembali ke Menu Import", callback_data: "/import" }],
+              ],
+            };
+
+            await sendToTelegram(token, chatId,
+              `📄 *File Diterima!*\n\n` +
+              `Nama file: *${filename}*\n` +
+              `Tipe data : *${typeLabel}*\n` +
+              `Periode   : *${displayDate}*\n\n` +
+              `Data akan diimport ke sistem LESA VI.\n\n` +
+              `Lanjutkan import kak *${amFirstName}*? 👇`,
+              CONFIRM_KEYBOARD
+            ).catch(() => {});
+          } catch (err) {
+            logger.error({ err }, "Failed to process uploaded file from Telegram");
+            await sendToTelegram(token, chatId,
+              `❌ Gagal mendownload file. Pastikan file dikirim ulang ya kak.`
+            ).catch(() => {});
+          }
+          continue;
+        }
+      }
 
       const isVerifCode = (s: string) => /^LV-[A-Z0-9]{6}$/i.test(s);
 
@@ -597,6 +1235,16 @@ export async function pollOnce() {
         }
         const amFirstName = linkedAm.nama.split(" ")[0];
 
+        // ADMIN/OFFICER/MANAGER should use /list instead
+        if (linkedAm.role !== "ACCOUNT_MANAGER") {
+          await sendToTelegram(token, chatId,
+            `❌ Fitur ini hanya untuk *Account Manager* kak.\n\n` +
+            `Untuk melihat data snapshot, silakan ketik */list* ya kak.`,
+            getMainKeyboard(linkedAm.role)
+          ).catch(() => {});
+          continue;
+        }
+
         // Send welcome message with cooldown
         const now = Date.now();
         const lastSent = lastWelcomeSent.get(chatId) ?? 0;
@@ -633,6 +1281,25 @@ export async function pollOnce() {
         continue;
       }
 
+      // /list — show snapshot list (for ADMIN/OFFICER/MANAGER)
+      if (text === "/list") {
+        const [linkedAm] = await db.select().from(accountManagersTable)
+          .where(eq(accountManagersTable.telegramChatId, chatId));
+        if (!linkedAm || linkedAm.role === "ACCOUNT_MANAGER") {
+          await sendToTelegram(token, chatId,
+            `❌ Fitur ini hanya tersedia untuk *ADMIN*, *OFFICER*, dan *MANAGER*.`,
+            linkedAm ? getMainKeyboard(linkedAm.role) : undefined
+          ).catch(() => {});
+          continue;
+        }
+        const amFirstName = linkedAm.nama.split(" ")[0];
+        snapshotState.delete(chatId);
+        await sendToTelegram(token, chatId,
+          `📋 *List Data Snapshot*\n\nPilih tipe data yang ingin dilihat kak *${amFirstName}*:`, LIST_SNAPSHOT_TYPE_KEYBOARD
+        ).catch(() => {});
+        continue;
+      }
+
       // Verification code
       if (isVerifCode(text)) {
         await tryLinkByCode(text, "manual code");
@@ -656,19 +1323,15 @@ export async function pollOnce() {
           const unlinked = await buildWelcomeUnlinked(firstName);
           await sendToTelegram(token, chatId, unlinked.text, unlinked.keyboard).catch(() => {});
         } else {
-          // Fallback: unrecognized text from linked user, short message with cooldown
-          const now = Date.now();
-          const lastSent = lastWelcomeSent.get(chatId) ?? 0;
-          if (now - lastSent >= WELCOME_COOLDOWN_MS) {
-            const fallbackText = buildFallback(linkedAm.nama.split(" ")[0]);
-            await sendToTelegram(token, chatId, fallbackText, getMainKeyboard(linkedAm.role)).catch(() => {});
-            lastWelcomeSent.set(chatId, now);
-          }
+          // Fallback: unrecognized text from linked user, short message (no cooldown)
+          const fallbackText = buildFallback();
+          await sendToTelegram(token, chatId, fallbackText).catch(() => {});
         }
       }
     }
   } catch (err) {
-    logger.debug({ err }, "Telegram poller error (non-fatal)");
+    console.error(`[TELEGRAM POLLER ERROR] ${err}`);
+    logger.error({ err }, "Telegram poller error");
   }
 }
 
@@ -680,7 +1343,7 @@ async function deleteWebhookIfAny(token: string) {
   } catch { /* non-fatal */ }
 }
 
-export function startTelegramPoller(intervalMs = 15000) {
+export function startTelegramPoller(intervalMs = 3000) {
   const run = async () => {
     await pollOnce();
     pollerTimer = setTimeout(run, intervalMs);
@@ -715,7 +1378,7 @@ export function rescheduleTelegramPoller(newToken?: string) {
         if (data.ok) logger.info("Webhook cleared for new token");
       })(); } catch { /* non-fatal */ }
     }
-    startTelegramPoller(15000);
+    startTelegramPoller(3000);
   };
   setTimeout(() => restart().catch(() => {}), 500);
 }

@@ -15,7 +15,6 @@ import TelegramLinkRequiredPage from "@/features/auth/TelegramLinkRequiredPage";
 import EmbedPerforma from "@/features/performance/PresentationPage";
 import PresentationLoginPage from "@/features/performance/PresentationLoginPage";
 import { getPresentationSession, clearPresentationSession } from "@/shared/hooks/use-presentation-auth";
-import Dashboard from "@/features/dashboard/DashboardPage";
 import ImportData from "@/features/import/ImportPage";
 import ImportDetail from "@/features/import/ImportDetailPage";
 import PerformaVis from "@/features/performance/PerformaPage";
@@ -81,7 +80,9 @@ class ErrorBoundary extends Component<{ children: ReactNode; onReset?: () => voi
 // ─── Safe Redirect ───────────────────────────────────────────────────────────────
 function SafeRedirect({ to }: { to: string }) {
   useEffect(() => {
-    window.location.href = to;
+    // Preserve query params from current URL (e.g. ?type=funnel&snapshot=142)
+    const qp = window.location.search;
+    window.location.href = to + qp;
   }, [to]);
   return null;
 }
@@ -258,7 +259,7 @@ function AppRouter() {
 
       {/* ── Auth / Login routes — OUTSIDE ProtectedApp, no auth check ── */}
       <Route path="/login" component={Login} />
-      <Route path="/auth/otp-verify" component={OtpVerificationPage} />
+      <Route path="/auth/otp-verify">{() => <OtpVerificationPage />}</Route>
       <Route path="/auth/telegram-link" component={TelegramLinkRequiredPage} />
 
       {/* ── Root route — redirect based on auth role ── */}

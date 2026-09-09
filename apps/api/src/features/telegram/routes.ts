@@ -20,6 +20,38 @@ function generateLVACode(): string {
   return code;
 }
 
+/**
+ * Parse duration string to milliseconds.
+ * Formats: "30m", "1h", "2h", "24h" or number of minutes.
+ * Default: 30 minutes.
+ */
+function parseDuration(duration: string | number | undefined): number {
+  if (!duration) return 30 * 60 * 1000;
+  if (typeof duration === "number") {
+    const mins = Math.max(1, Math.min(duration, 24 * 60));
+    return mins * 60 * 1000;
+  }
+  const str = String(duration).trim().toLowerCase();
+  if (str.endsWith("m")) {
+    const mins = Math.max(1, Math.min(parseInt(str) || 30, 24 * 60));
+    return mins * 60 * 1000;
+  }
+  if (str.endsWith("h")) {
+    const hours = Math.max(1, Math.min(parseInt(str) || 1, 24));
+    return hours * 60 * 60 * 1000;
+  }
+  const mins = Math.max(1, Math.min(parseInt(str) || 30, 24 * 60));
+  return mins * 60 * 1000;
+}
+
+function makeExpiry(duration: string | number | undefined): Date {
+  return new Date(Date.now() + parseDuration(duration));
+}
+
+function makeBotDeeplink(botUsername: string | null, code: string): string | null {
+  return botUsername ? `https://t.me/${botUsername}?start=${code}` : null;
+}
+
 router.post("/send", requireAuth, async (req, res): Promise<void> => {
   const { targetNiks, period, includePerformance, includeFunnel, includeActivity, customMessage,
           perfSnapshotId, funnelCurrSnapshotId, funnelPrevSnapshotId, activitySnapshotId } = req.body;
@@ -51,21 +83,21 @@ router.get("/logs", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/register-code", requireAuth, async (req, res): Promise<void> => {
-  const { amId } = req.body;
+  const { amId, duration } = req.body;
   if (!amId) { res.status(400).json({ error: "amId diperlukan" }); return; }
 
   const [existing] = await db.select().from(accountManagersTable).where(eq(accountManagersTable.id, amId));
   if (!existing) { res.status(404).json({ error: "AM tidak ditemukan" }); return; }
 
-  const code = `LESAVI-${existing.nik}`;
-  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const code = generateLVACode();
+  const expiresAt = makeExpiry(duration);
 
   await db.update(accountManagersTable).set({
     telegramCode: code,
-    telegramCodeExpiry: expiry,
+    telegramCodeExpiry: expiresAt,
   }).where(eq(accountManagersTable.id, amId));
 
-  res.json({ code, expiresAt: expiry.toISOString() });
+  res.json({ code, expiresAt: expiresAt.toISOString() });
 });
 
 // GET /api/telegram/updates — Return combined list of:
@@ -176,17 +208,18 @@ router.post("/link-am", requireAuth, async (req, res): Promise<void> => {
 
 // POST /api/telegram/bulk-generate-codes — Generate codes for all unconnected AMs
 router.post("/bulk-generate-codes", requireAuth, async (req, res): Promise<void> => {
+  const { duration } = req.body;
   const ams = await db.select().from(accountManagersTable).orderBy(accountManagersTable.nama);
   const unconnected = ams.filter(a => !a.telegramChatId);
 
+  const expiresAt = makeExpiry(duration);
   const results = [];
   for (const am of unconnected) {
-    const code = `LESAVI-${am.nik}`;
-    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 jam
+    const code = generateLVACode();
     await db.update(accountManagersTable)
-      .set({ telegramCode: code, telegramCodeExpiry: expiry })
+      .set({ telegramCode: code, telegramCodeExpiry: expiresAt })
       .where(eq(accountManagersTable.id, am.id));
-    results.push({ nama: am.nama, nik: am.nik, divisi: am.divisi, code, expiresAt: expiry.toISOString() });
+    results.push({ nama: am.nama, nik: am.nik, divisi: am.divisi, code, expiresAt: expiresAt.toISOString() });
   }
 
   res.json({ results, total: results.length });
@@ -216,20 +249,33 @@ router.delete("/unlink-all", requireAuth, async (req, res): Promise<void> => {
   res.json({ ok: true });
 });
 
-// POST /api/telegram/gen-link/:amId — Generate magic deeplink for an AM
+// POST /api/telegram/gen-link/:amId — Generate LV-XXXXXX deeplink for an AM
 router.post("/gen-link/:amId", requireAuth, async (req, res): Promise<void> => {
   const amId = parseInt(req.params.amId as string, 10);
+  const { duration } = req.body;
   if (!amId) { res.status(400).json({ error: "amId tidak valid" }); return; }
 
   const [existing] = await db.select().from(accountManagersTable).where(eq(accountManagersTable.id, amId));
   if (!existing) { res.status(404).json({ error: "AM tidak ditemukan" }); return; }
 
-  const code = `LESAVI-${existing.nik}`;
-  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 jam
+  const currentUser = (req as any).user;
+  const code = generateLVACode();
+  const expiresAt = makeExpiry(duration);
 
+  // Update legacy column (for display purposes)
   await db.update(accountManagersTable)
-    .set({ telegramCode: code, telegramCodeExpiry: expiry })
+    .set({ telegramCode: code, telegramCodeExpiry: expiresAt })
     .where(eq(accountManagersTable.id, amId));
+
+  // Also store in telegramAccessCodesTable so the Telegram poller can verify it
+  const codeHash = await bcrypt.hash(code, 10);
+  await db.insert(telegramAccessCodesTable).values({
+    userId: existing.id,
+    codeHash,
+    createdBy: currentUser?.id ?? null,
+    expiresAt,
+    status: "ACTIVE",
+  });
 
   const [settings] = await db.select().from(appSettingsTable);
   let botUsername: string | null = null;
@@ -241,12 +287,14 @@ router.post("/gen-link/:amId", requireAuth, async (req, res): Promise<void> => {
     } catch { /* ignore */ }
   }
 
-  const link = botUsername ? `https://t.me/${botUsername}?start=${code}` : null;
-  res.json({ code, link, expiresAt: expiry.toISOString(), botUsername });
+  const link = makeBotDeeplink(botUsername, code);
+  res.json({ code, link, expiresAt: expiresAt.toISOString(), botUsername });
 });
 
-// POST /api/telegram/gen-links-bulk — Generate magic links for all non-DGS AMs at once
+// POST /api/telegram/gen-links-bulk — Generate LV-XXXXXX deeplinks for all non-DGS AMs at once
 router.post("/gen-links-bulk", requireAuth, async (req, res): Promise<void> => {
+  const { duration } = req.body;
+  const currentUser = (req as any).user;
   const [settings] = await db.select().from(appSettingsTable);
   let botUsername: string | null = null;
   if (settings?.telegramBotToken) {
@@ -260,22 +308,35 @@ router.post("/gen-links-bulk", requireAuth, async (req, res): Promise<void> => {
   const allAms = await db.select().from(accountManagersTable);
   const nonDgsAms = allAms.filter(a => a.divisi !== "DGS");
 
-  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const expiresAt = makeExpiry(duration);
   const results = await Promise.all(nonDgsAms.map(async am => {
-    const code = `LESAVI-${am.nik}`;
+    const code = generateLVACode();
+    const codeHash = await bcrypt.hash(code, 10);
+
+    // Update legacy column
     await db.update(accountManagersTable)
-      .set({ telegramCode: code, telegramCodeExpiry: expiry })
+      .set({ telegramCode: code, telegramCodeExpiry: expiresAt })
       .where(eq(accountManagersTable.id, am.id));
-    const link = botUsername ? `https://t.me/${botUsername}?start=${code}` : null;
+
+    // Store in telegramAccessCodesTable for poller verification
+    await db.insert(telegramAccessCodesTable).values({
+      userId: am.id,
+      codeHash,
+      createdBy: currentUser?.id ?? null,
+      expiresAt,
+      status: "ACTIVE",
+    });
+
+    const link = makeBotDeeplink(botUsername, code);
     return { amId: am.id, nama: am.nama, nik: am.nik, divisi: am.divisi, link, code, connected: !!am.telegramChatId };
   }));
 
-  res.json({ botUsername, expiresAt: expiry.toISOString(), results });
+  res.json({ botUsername, expiresAt: expiresAt.toISOString(), results });
 });
 
 // POST /api/telegram/access-codes — Generate LV-XXXXXX access code for a user (permission-gated)
 router.post("/access-codes", requireAuth, async (req, res): Promise<void> => {
-  const { userId } = req.body;
+  const { userId, duration } = req.body;
   const currentUser = (req as any).user;
   if (!currentUser) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -294,7 +355,7 @@ router.post("/access-codes", requireAuth, async (req, res): Promise<void> => {
   // Generate LV-XXXXXX code
   const code = generateLVACode();
   const codeHash = await bcrypt.hash(code, 10);
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 60 minutes
+  const expiresAt = makeExpiry(duration);
 
   const [accessCode] = await db.insert(telegramAccessCodesTable).values({
     userId: targetUser.id,
@@ -314,7 +375,7 @@ router.post("/access-codes", requireAuth, async (req, res): Promise<void> => {
       botUsername = d.result?.username ?? null;
     } catch { /* ignore */ }
   }
-  const link = botUsername ? `https://t.me/${botUsername}?start=${code}` : null;
+  const link = makeBotDeeplink(botUsername, code);
 
   res.json({
     id: accessCode.id,
@@ -392,6 +453,23 @@ router.get("/users", requireAuth, async (req, res): Promise<void> => {
     telegramConnected: !!u.telegramChatId,
     telegramLinkedAt: u.telegramLinkedAt?.toISOString() ?? null,
   })));
+});
+
+// GET /api/telegram/stats — Lightweight counts for stat cards
+router.get("/stats", requireAuth, async (_req, res): Promise<void> => {
+  const allUsers = await db.select({ telegramChatId: accountManagersTable.telegramChatId, aktif: accountManagersTable.aktif, divisi: accountManagersTable.divisi })
+    .from(accountManagersTable);
+
+  const nonDgs = allUsers.filter(u => u.divisi !== "DGS");
+  const connected = nonDgs.filter(u => !!u.telegramChatId);
+  const aktifNonDgs = nonDgs.filter(u => u.aktif);
+
+  res.json({
+    totalNonDgs: nonDgs.length,
+    totalConnected: connected.length,
+    totalAktifNonDgs: aktifNonDgs.length,
+    totalAktifConnected: aktifNonDgs.filter(u => !!u.telegramChatId).length,
+  });
 });
 
 // GET /api/telegram/bot-status — Check if bot token is valid

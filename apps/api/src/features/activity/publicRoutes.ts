@@ -56,8 +56,8 @@ router.get("/activity", async (req, res): Promise<void> => {
   }
   const availableMonths = [...monthSet].sort().reverse();
 
-  // Hanya AM terdaftar (role=AM, aktif=true) — bukan officer/manager
-  const registeredAms = ams.filter(a => a.aktif && a.role === "AM");
+  // Hanya AM terdaftar (role=ACCOUNT_MANAGER/AM, aktif=true) — bukan officer/manager
+  const registeredAms = ams.filter(a => a.aktif && ["ACCOUNT_MANAGER", "AM"].includes(a.role));
   const registeredNikSet = new Set(registeredAms.map(a => a.nik));
 
   let acts = allActs;

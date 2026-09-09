@@ -8,6 +8,7 @@ import { authSubRouter, publicSubRouter, healthSubRouter } from "./routes";
 import presentationAuthRouter from "./features/auth/routes";
 import amRouter from "./features/am/routes";
 import importRouter from "./features/import/routes";
+import internalRouter from "./features/import/internal";
 import performanceRouter from "./features/performance/routes";
 import funnelRouter from "./features/funnel/routes";
 import activityRouter from "./features/activity/routes";
@@ -18,6 +19,7 @@ import gDriveRouter from "./features/gdrive/routes";
 import corporateRouter from "./features/corporate/routes";
 import { requireAuth, requireManagerOrOfficer } from "./shared/auth";
 import { logger } from "./shared/logger";
+import { setPublicBaseUrl } from "./shared/publicUrl";
 import { pool } from "@workspace/db";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -53,6 +55,19 @@ app.use("/api", (_req, res, next) => {
 });
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ extended: true, limit: "100mb" }));
+
+// ── Dynamic Public URL Detection ──────────────────────────────────────────────
+// Detect the public base URL from incoming request headers so Telegram bot
+// messages contain URLs matching the host the user actually uses.
+app.use((req, _res, next) => {
+  const forwardedHost = (req.headers["x-forwarded-host"] as string)?.split(",")[0]?.trim();
+  const host = forwardedHost || req.headers["host"];
+  if (host) {
+    const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0]?.trim() || "http";
+    setPublicBaseUrl(`${proto}://${host}`);
+  }
+  next();
+});
 
 // ─── Serve Dashboard Static Build (SPA fallback) ────────────────────────────────
 // Must come BEFORE /api routes so API calls go through first
@@ -100,6 +115,9 @@ app.use("/api/auth", dashboardSessionMw, authSubRouter);
 // This router does NOT use express-session. All auth state is in the DB.
 // No cookie/session middleware needed here — zero interference with dashboard.
 app.use("/api/auth/presentation", presentationAuthRouter);
+
+// ─── Internal routes — no session auth, uses x-telegram-secret header ─────────
+app.use("/api/internal", internalRouter);
 
 // ─── Protected Dashboard routes — uses connect.sid ────────────────────────────
 app.use("/api/am", dashboardSessionMw, requireAuth, requireManagerOrOfficer, amRouter);

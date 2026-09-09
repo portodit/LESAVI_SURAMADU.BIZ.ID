@@ -11,7 +11,7 @@ import {
 import { sendReminderToAllAMs } from "../telegram/service";
 
 // ── Helper: auto-register new AM to accounts table with aktif=false ───────────
-async function autoRegisterNewAms(entries: { nik: string; nama: string; divisi: string; witel?: string }[], source: string): Promise<number> {
+export async function autoRegisterNewAms(entries: { nik: string; nama: string; divisi: string; witel?: string }[], source: string): Promise<number> {
   const existing = await db.select({ nik: accountManagersTable.nik, slug: accountManagersTable.slug }).from(accountManagersTable);
   const existingNiks = new Set(existing.map(a => a.nik));
   const existingSlugs = new Set(existing.map(a => a.slug));
@@ -791,4 +791,217 @@ router.patch("/:importId/rows/:rowId", requireAuth, async (req, res): Promise<vo
   }
 });
 
+// Internal endpoint for Telegram bot import (no session auth, uses shared secret)
+router.post("/internal/performance", async (req, res): Promise<void> => {
+  const secret = req.headers["x-telegram-secret"];
+  if (secret !== process.env["TELEGRAM_IMPORT_SECRET"] && secret !== "telegram-bot-internal-secret-2024") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  // Forward to the main handler by calling it inline (reuse all the logic above)
+  // We replicate just the key parts needed by the Telegram bot
+  const { fileData, snapshotDate, period: bodyPeriod } = req.body as { fileData?: string; snapshotDate?: string; period?: string };
+
+  if (!fileData) {
+    res.status(400).json({ error: "fileData (base64) diperlukan" });
+    return;
+  }
+
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(fileData, "base64");
+  } catch {
+    res.status(400).json({ error: "fileData bukan base64 yang valid" });
+    return;
+  }
+
+  let rows: ParsedRow[];
+  try {
+    const fmt = await detectExcelFormat(buffer);
+    if (fmt.isPivot) {
+      const nipnas2am = parseNipnas2AmSheet(buffer);
+      let amRows: ParsedRow[] = [];
+      let suramaduCount = 0;
+
+      const cache2Result = await parsePivotCache(buffer, 2);
+      const cache2HasNik = cache2Result.fields.includes("NIK");
+      if (cache2HasNik) {
+        amRows = pivotCacheRowsToParsedRowsFromCache2(cache2Result, nipnas2am);
+        suramaduCount = amRows.filter(r => String(r.WITEL_AM ?? "").trim().toUpperCase() === "SURAMADU").length;
+      }
+
+      if (suramaduCount === 0 && fmt.cacheCount >= 1) {
+        const cache1Result = await parsePivotCache(buffer, 1);
+        if (cache1Result.fields.includes("NIK")) {
+          amRows = pivotCacheRowsToParsedRowsFromCache2(cache1Result, nipnas2am);
+        }
+      }
+
+      rows = amRows.filter(r => String(r.WITEL_AM ?? "").trim().toUpperCase() === "SURAMADU");
+    } else {
+      rows = parseExcelFromBase64(fileData, undefined);
+    }
+  } catch (e: any) {
+    res.status(422).json({ error: "Gagal parsing file Excel: " + e.message });
+    return;
+  }
+
+  const filtered = rows.filter(r => {
+    const witel = String(r.WITEL_AM ?? r.WITEL ?? "").trim().toUpperCase();
+    return witel === "SURAMADU";
+  });
+
+  if (filtered.length === 0) {
+    res.status(422).json({ error: "Tidak ada data dengan WITEL_AM=SURAMADU", rawCount: rows.length, filteredCount: 0 });
+    return;
+  }
+
+  let tahun: number;
+  let bulan: number;
+  if (snapshotDate && /^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) {
+    const parts = snapshotDate.split("-");
+    tahun = parseInt(parts[0], 10);
+    bulan = parseInt(parts[1], 10);
+  } else {
+    const periodeSet = new Set<string>();
+    for (const r of filtered) {
+      const p = String(r.PERIODE ?? "").trim();
+      if (p) periodeSet.add(p);
+    }
+    const periodeList = [...periodeSet].sort();
+    const PERIODE = bodyPeriod || periodeList[0] || new Date().toISOString().slice(0, 7).replace("-", "");
+    tahun = parseInt(PERIODE.slice(0, 4), 10) || new Date().getFullYear();
+    bulan = parseInt(PERIODE.slice(4, 6), 10) || new Date().getMonth() + 1;
+  }
+
+  const importPeriod = `${tahun}${String(bulan).padStart(2, "0")}`;
+  const masterAms = await db.select().from(accountManagersTable).where(eq(accountManagersTable.aktif, true));
+  const nikToName = new Map(masterAms.map(a => [a.nik, a.nama]));
+  const nikToDivisi = new Map(masterAms.map(a => [a.nik, a.divisi]));
+
+  const records: any[] = filtered.map(r => {
+    const nik = String(r.NIK ?? "").trim();
+    const divisi = (r.DIVISI_AM as string) || nikToDivisi.get(nik) || "DPS";
+    const periode = String(r.PERIODE ?? "").trim();
+    const rowTahun = parseInt(periode.slice(0, 4), 10) || tahun;
+    const rowBulan = parseInt(periode.slice(4, 6), 10) || bulan;
+
+    const targetReguler = parseFloat(String(r.TARGET_REVENUE ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const realReguler = parseFloat(String(r.REAL_REVENUE ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const targetSustain = parseFloat(String(r.TARGET_SUSTAIN ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const realSustain = parseFloat(String(r.REAL_SUSTAIN ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const targetScaling = parseFloat(String(r.TARGET_SCALING ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const realScaling = parseFloat(String(r.REAL_SCALING ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const targetNgtma = parseFloat(String(r.TARGET_NGTMA ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const realNgtma = parseFloat(String(r.REAL_NGTMA ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const targetRevenue = targetReguler + targetSustain + targetScaling + targetNgtma;
+    const realRevenue = realReguler + realSustain + realScaling + realNgtma;
+    const revenueBase = parseFloat(String(r.REVENUE_BASE ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const revenueBillcom = parseFloat(String(r.REVENUE_BILLCOM ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const aRev = parseFloat(String(r.a_rev ?? r.a_REV ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const aNgtma = parseFloat(String(r.a_ngtma ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const aScaling = parseFloat(String(r.a_scaling ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const aSustain = parseFloat(String(r.a_sustain ?? 0).replace(/[^\d.-]/g, "")) || 0;
+    const achRate = aRev || (targetRevenue > 0 ? realRevenue / targetRevenue : 0);
+
+    const komponenDetail = JSON.stringify({
+      nip: r.NIP_NAS_GROUP ?? r.NIP_NAS ?? null,
+      nipnas: r.NIP_NAS ?? null,
+      pelanggan: r.STANDARD_NAME ?? r.NAMA_PELANGGAN ?? r.PELANGGAN ?? null,
+      proporsi: r.PROPORSI ?? 1,
+      group: r.GROUP ?? null,
+      industri: r.INDUSTRI ?? null,
+      lsegmen: r.LSEGMEN ?? null,
+      ssegmen: r.SSEGMEN ?? null,
+      witelCc: r.WITEL_CC ?? r.WITEL ?? null,
+      telda: r.TELDA ?? null,
+      regional: r.REGIONAL ?? null,
+      divisiCc: r.DIVISI_CC ?? r.DIVISI ?? null,
+      kawasan: r.KAWASAN ?? null,
+      layanan: r.LAYANAN ?? null,
+      reguler: { target: targetReguler, real: realReguler },
+      sustain: { target: targetSustain, real: realSustain },
+      scaling: { target: targetScaling, real: realScaling },
+      ngtma: { target: targetNgtma, real: realNgtma },
+      revenueBase, revenueBillcom,
+    });
+
+    const namaAm = r.NAMA_AM || nikToName.get(nik) || nik || "UNKNOWN";
+
+    return {
+      nik, namaAm, divisi,
+      divisiCc: r.DIVISI_CC ?? r.DIVISI ?? null,
+      witelAm: r.WITEL_AM ?? r.WITEL ?? "SURAMADU",
+      witelCc: r.WITEL_CC ?? r.WITEL ?? null,
+      levelAm: r.LEVEL_AM ?? null,
+      tahun: rowTahun, bulan: rowBulan,
+      targetRevenue, realRevenue,
+      targetReguler, realReguler,
+      targetSustain, realSustain,
+      targetScaling, realScaling,
+      targetNgtma, realNgtma,
+      revenueBase, revenueBillcom,
+      aRev, aNgtma, aScaling, aSustain,
+      achRate, achRateYtd: achRate,
+      rankAch: 0,
+      statusWarna: achRate >= 1 ? "hijau" : achRate >= 0.8 ? "kuning" : "merah",
+      komponenDetail,
+      snapshotDate: snapshotDate || null,
+    };
+  });
+
+  const [existingPerf] = snapshotDate
+    ? await db.select().from(dataImportsTable).where(and(
+        eq(dataImportsTable.type, "performance"),
+        eq(dataImportsTable.period, importPeriod),
+        eq(dataImportsTable.snapshotDate, snapshotDate.slice(0, 10)),
+      ))
+    : await db.select().from(dataImportsTable).where(and(
+        eq(dataImportsTable.type, "performance"),
+        eq(dataImportsTable.period, importPeriod)
+      ));
+
+  if (existingPerf) {
+    await db.delete(performanceDataTable).where(eq(performanceDataTable.importId, existingPerf.id));
+    await db.delete(dataImportsTable).where(eq(dataImportsTable.id, existingPerf.id));
+  }
+
+  const [imp] = await db.insert(dataImportsTable).values({
+    type: "performance",
+    rowsImported: records.length,
+    period: importPeriod,
+    snapshotDate: snapshotDate || null,
+    sourceUrl: null,
+    autoTelegramSent: false,
+  }).returning();
+
+  const BATCH = 100;
+  for (let i = 0; i < records.length; i += BATCH) {
+    const batch = records.slice(i, i + BATCH).map(r => ({ ...r, importId: imp.id }));
+    await db.insert(performanceDataTable).values(batch as any);
+  }
+
+  const newPerfAmCount = await autoRegisterNewAms(
+    records.map((r: any) => ({ nik: r.nik, nama: r.namaAm, divisi: r.divisi, witel: r.witelAm })),
+    "import_performance_telegram"
+  );
+
+  const amCount = new Set(records.map(r => r.nik)).size;
+
+  res.json({
+    success: true,
+    rowsImported: records.length,
+    amCount,
+    period: importPeriod,
+    tahun, bulan,
+    snapshotDate: snapshotDate || null,
+    rawCount: rows.length,
+    filteredCount: filtered.length,
+    newAmDiscovered: newPerfAmCount,
+    message: `${records.length} dari ${rows.length} baris performance berhasil diimport.`,
+    importId: imp.id,
+  });
+});
+
 export default router;
+

@@ -152,6 +152,17 @@ export default function OtpVerificationPage({ mode = "dashboard" }: OtpVerificat
       setOtp("");
       setLocked(false);
       setCooldown(0);
+      // Restart expiry countdown from sessionStorage
+      expiryRef.current = setInterval(() => {
+        const exp = sessionStorage.getItem("auth_expiresAt");
+        if (!exp) return;
+        const remaining = Math.max(0, Math.ceil((new Date(exp).getTime() - Date.now()) / 1000));
+        setOtpExpirySeconds(remaining);
+        if (remaining <= 0) {
+          setLocalError("Kode verifikasi telah kedaluwarsa. Silakan minta kode baru.");
+          if (expiryRef.current) clearInterval(expiryRef.current);
+        }
+      }, 1000);
     } catch (err: any) {
       setLocalError(err?.data?.error ?? err?.message ?? "Gagal mengirim kode verifikasi ulang.");
       setCooldown(60);
@@ -166,7 +177,7 @@ export default function OtpVerificationPage({ mode = "dashboard" }: OtpVerificat
 
   const showTimer = (cooldown > 0 || otpExpirySeconds > 0) && !hasChallengeError;
   const verifyDisabled = otp.length !== 5 || isVerifying || isInputDisabled;
-  const resendDisabled = isVerifying || isResending || isInputDisabled;
+  const resendDisabled = isVerifying || isResending || otpExpirySeconds > 0;
 
   return (
     <div className="relative flex min-h-screen w-full overflow-hidden">
@@ -290,7 +301,7 @@ export default function OtpVerificationPage({ mode = "dashboard" }: OtpVerificat
                     : "text-sm font-semibold text-[#cc0000] hover:text-[#b50000] hover:underline"
                 }
               >
-                {isResending ? "Mengirim..." : "Kirim Ulang Kode"}
+                {isResending ? "Mengirim..." : otpExpirySeconds > 0 ? `Kirim Ulang Kode` : "Kirim Ulang Kode"}
               </button>
             </div>
 

@@ -2,8 +2,9 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { db, otpChallengesTable, accountManagersTable, appSettingsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { sendToTelegram } from "../telegram/service";
+import { sendToTelegram, sendToTelegramHtml } from "../telegram/service";
 import { getClientIp } from "../../shared/auth";
+import { storeOtp } from "./otpStore";
 
 const OTP_LENGTH = 5;
 const OTP_EXPIRY_MINUTES = 5;
@@ -88,14 +89,15 @@ export async function requestOtp(userId: number, req: Request): Promise<{
   if (settings?.telegramBotToken && user.telegramChatId) {
     const firstName = user.nama?.split(" ")[0] ?? "Kak";
     const message =
-      `🔐 *Kode Verifikasi Masuk*\n\n` +
-      `Hai kak *${firstName}*!\n\n` +
+      `🔐 <b>Kode Verifikasi Masuk</b>\n\n` +
+      `Hai kak <b>${firstName}</b>!\n\n` +
       `Berikut kode verifikasi untuk masuk ke Dashboard LESA VI:\n\n` +
-      `*${otp}*\n\n` +
-      `⚠️ Kode ini berlaku selama *${OTP_EXPIRY_MINUTES} menit*. Jangan bagikan kode ini ke siapa pun.\n\n` +
+      `<code>${otp}</code>\n\n` +
+      `⚠️ Kode ini berlaku selama <b>${OTP_EXPIRY_MINUTES} menit</b>. Jangan bagikan kode ini ke siapa pun.\n\n` +
       `Jika Anda tidak meminta kode ini, abaikan pesan ini.`;
 
-    await sendToTelegram(settings.telegramBotToken, user.telegramChatId, message).catch(() => {});
+    storeOtp(challengeId, otp, user.telegramChatId);
+    await sendToTelegramHtml(settings.telegramBotToken, user.telegramChatId, message).catch(() => {});
   }
 
   const session = (req as any).session;
@@ -288,14 +290,15 @@ export async function requestOtpPresentation(userId: number): Promise<{
   if (settings?.telegramBotToken && user.telegramChatId) {
     const firstName = user.nama?.split(" ")[0] ?? "Kak";
     const message =
-      `🔐 *Kode Verifikasi Masuk*\n\n` +
-      `Hai kak *${firstName}*!\n\n` +
+      `🔐 <b>Kode Verifikasi Masuk</b>\n\n` +
+      `Hai kak <b>${firstName}</b>!\n\n` +
       `Berikut kode verifikasi untuk masuk ke Dashboard LESA VI:\n\n` +
-      `*${otp}*\n\n` +
-      `⚠️ Kode ini berlaku selama *${OTP_EXPIRY_MINUTES} menit*. Jangan bagikan kode ini ke siapa pun.\n\n` +
+      `<code>${otp}</code>\n\n` +
+      `⚠️ Kode ini berlaku selama <b>${OTP_EXPIRY_MINUTES} menit</b>. Jangan bagikan kode ini ke siapa pun.\n\n` +
       `Jika Anda tidak meminta kode ini, abaikan pesan ini.`;
 
-    await sendToTelegram(settings.telegramBotToken, user.telegramChatId, message).catch(() => {});
+    storeOtp(challengeId, otp, user.telegramChatId);
+    await sendToTelegramHtml(settings.telegramBotToken, user.telegramChatId, message).catch(() => {});
   }
 
   return { challengeId, expiresAt };

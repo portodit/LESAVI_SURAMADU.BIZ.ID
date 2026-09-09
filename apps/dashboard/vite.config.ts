@@ -55,6 +55,25 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("recharts")) return "vendor-charts";
+            if (id.includes("framer-motion") || id.includes("motion-dom") || id.includes("motion-utils")) return "vendor-motion";
+            if (id.includes("xlsx") || id.includes("ssf")) return "vendor-xlsx";
+            if (id.includes("@radix-ui/")) return "vendor-radix";
+            if (id.includes("@tanstack/react-query")) return "vendor-query";
+            if (id.includes("lucide-react")) return "vendor-icons";
+            if (id.includes("wouter")) return "vendor-router";
+            if (id.includes("zod")) return "vendor-zod";
+            if (id.includes("date-fns")) return "vendor-date";
+            if (id.includes("tailwindcss") || id.includes("@tailwindcss")) return "vendor-css";
+          }
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
   },
   server: {
     port,
@@ -62,7 +81,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
     },

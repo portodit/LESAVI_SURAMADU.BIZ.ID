@@ -123,9 +123,18 @@ export interface LoginBody {
 }
 
 export interface AuthResponse {
+  /** @nullable */
+  error?: string | null;
   id: number;
   email: string;
   role: string;
+  nextStep?: string;
+  userId?: number;
+  nama?: string;
+  /** @nullable */
+  tipe?: string | null;
+  telegramConnected?: boolean;
+  presentationToken?: string;
 }
 
 export interface AccountManager {

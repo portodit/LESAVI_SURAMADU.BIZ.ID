@@ -52,6 +52,7 @@ export const performanceDataTable = pgTable("performance_data", {
   komponenDetail: text("komponen_detail"),
   snapshotDate: text("snapshot_date"),
   importId: integer("import_id"),
+  proporsi: numeric("proporsi", { precision: 24, scale: 16 }).default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

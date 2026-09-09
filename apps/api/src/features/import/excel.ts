@@ -352,7 +352,12 @@ export interface CleanedFunnelRow {
 export function cleanFunnelRows(rows: ParsedRow[], opts?: { skipDivisiFilter?: boolean; strictIsReport?: boolean; skipIsReportFilter?: boolean; skipWitelFilter?: boolean; preferPembuat?: boolean; pembuatOnly?: boolean }): CleanedFunnelRow[] {
   const passed: CleanedFunnelRow[] = [];
 
-  for (const r of rows) {
+  for (const rawRow of rows) {
+    // Normalize row keys to uppercase so we can handle both old (UPPERCASE) and new (lowercase) CSV headers
+    const r: ParsedRow = {};
+    for (const [k, v] of Object.entries(rawRow)) {
+      r[k.toUpperCase()] = v;
+    }
     // ── STEP 1: Filter witel = SURAMADU (using WITEL_AM — AM's own witel)
     const witelAm = cleanUpper(r.WITEL_AM ?? r.WITEL);
     if (!opts?.skipWitelFilter && !witelAm.includes("SURAMADU")) continue;

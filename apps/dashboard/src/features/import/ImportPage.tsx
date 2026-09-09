@@ -1752,6 +1752,11 @@ export default function ImportData() {
                       <div className="flex items-center justify-end">
                         <RowActions actions={[
                           { type: "view", onClick: () => navigate(`/import/detail/${h.type}/${h.id}`), label: "Lihat Data" },
+                          {
+                            type: "presentation" as const,
+                            href: `/presentation?type=${h.type}&snapshot=${h.id}`,
+                            label: "Visualisasi",
+                          },
                           { type: "delete", onClick: () => setDeleteConfirmId(h.id) },
                         ]} />
                       </div>

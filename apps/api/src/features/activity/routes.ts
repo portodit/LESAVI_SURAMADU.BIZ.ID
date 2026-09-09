@@ -43,8 +43,8 @@ router.get("/", requireAuth, async (req, res): Promise<void> => {
   ]);
   const kpiDefault = settingsArr[0]?.kpiActivityDefault ?? 30;
 
-  // Hanya AM terdaftar (role=AM, aktif=true) — bukan officer/manager
-  const registeredAms = ams.filter(a => a.aktif && a.role === "AM");
+  // Hanya AM terdaftar (role=ACCOUNT_MANAGER/AM, aktif=true) — bukan officer/manager
+  const registeredAms = ams.filter(a => a.aktif && ["ACCOUNT_MANAGER", "AM"].includes(a.role));
   const registeredNikSet = new Set(registeredAms.map(a => a.nik));
 
   let acts = allActs;

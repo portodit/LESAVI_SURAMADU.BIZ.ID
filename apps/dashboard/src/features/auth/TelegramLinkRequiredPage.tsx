@@ -10,9 +10,14 @@ export default function TelegramLinkRequiredPage() {
   const { data: officers, isLoading } = useListOfficers();
   const [step, setStep] = useState<"instructions" | "success">("instructions");
 
+  // Read returnTo from URL param or sessionStorage (set by presentation login flow)
+  const returnTo = typeof window !== "undefined"
+    ? (new URLSearchParams(window.location.search).get("returnTo") || sessionStorage.getItem("pres_returnTo") || "")
+    : "";
+
   const handleBack = () => {
     authMachine.reset();
-    setLocation("/login");
+    setLocation(returnTo || "/login");
   };
 
   if (step === "success") {
@@ -43,7 +48,7 @@ export default function TelegramLinkRequiredPage() {
                 type="button"
                 onClick={() => {
                   authMachine.reset();
-                  setLocation("/login");
+                  setLocation(returnTo ? "/presentation/login" + returnTo : "/login");
                 }}
                 className="relative w-full flex items-center justify-center gap-2 bg-[#cc0000] hover:bg-[#b50000] active:scale-[0.98] text-white rounded-2xl py-[14px] px-4 text-sm font-bold tracking-[-0.16px] transition-all"
                 style={{ fontFamily: "'Inter', sans-serif" }}

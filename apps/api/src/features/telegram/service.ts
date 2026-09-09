@@ -1,6 +1,7 @@
 import { db, appSettingsTable, accountManagersTable, performanceDataTable, salesFunnelTable, salesActivityTable, telegramLogsTable, dataImportsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { logger } from "../../shared/logger";
+import { getPublicBaseUrl } from "../../shared/publicUrl";
 import { generatePerfFeedback } from "./ai";
 
 const MONTH_NAMES = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -78,10 +79,10 @@ function achLabel(ach: number): string {
 
 function greetingByTime(): string {
   const hourWib = (new Date().getUTCHours() + 7) % 24;
-  if (hourWib >= 3 && hourWib < 11) return "Selamat pagi~";
-  if (hourWib >= 11 && hourWib < 15) return "Selamat siang~";
-  if (hourWib >= 15 && hourWib < 18) return "Selamat sore~";
-  return "Selamat malam~";
+  if (hourWib >= 3 && hourWib < 11) return "Selamat pagi";
+  if (hourWib >= 11 && hourWib < 15) return "Selamat siang";
+  if (hourWib >= 15 && hourWib < 18) return "Selamat sore";
+  return "Selamat malam";
 }
 
 function rankFeedback(firstName: string, rankCm: number, achCm: number): string {
@@ -93,13 +94,11 @@ function rankFeedback(firstName: string, rankCm: number, achCm: number): string 
 }
 
 function getEmbedUrl(): string {
-  const domain = process.env.PUBLIC_DOMAIN ?? process.env.PUBLIC_DOMAIN_FALLBACK ?? "lesavi-suramadu.biz.id";
-  return `https://${domain}/presentation`;
+  return `${getPublicBaseUrl()}/presentation`;
 }
 
 function getFunnelDetailUrl(): string {
-  const domain = process.env.PUBLIC_DOMAIN ?? process.env.PUBLIC_DOMAIN_FALLBACK ?? "lesavi-suramadu.biz.id";
-  return `https://${domain}/visualisasi/funnel`;
+  return `${getPublicBaseUrl()}/visualisasi/funnel`;
 }
 
 // ── Funnel helpers ──────────────────────────────────────────────────────────
@@ -520,11 +519,32 @@ export async function sendToTelegram(
   }
 }
 
-export async function answerCallbackQuery(botToken: string, callbackQueryId: string): Promise<void> {
+export async function sendToTelegramHtml(
+  botToken: string,
+  chatId: string,
+  message: string,
+  replyMarkup?: object
+): Promise<void> {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const body: Record<string, unknown> = { chat_id: chatId, text: message, parse_mode: "HTML" };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const data = await response.json() as { description?: string };
+    throw new Error(data.description || "Telegram API error");
+  }
+}
+
+export async function answerCallbackQuery(botToken: string, callbackQueryId: string, text?: string): Promise<void> {
   await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ callback_query_id: callbackQueryId }),
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
   }).catch(() => {});
 }
 

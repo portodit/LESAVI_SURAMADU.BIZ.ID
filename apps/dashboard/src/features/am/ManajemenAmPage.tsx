@@ -583,6 +583,16 @@ export default function ManajemenAmPage() {
     staleTime: 30_000,
   });
 
+  // Telegram stats — counts ALL non-DGS roles (not just AM)
+  const { data: tgStats } = useQuery<{
+    totalNonDgs: number; totalConnected: number;
+    totalAktifNonDgs: number; totalAktifConnected: number;
+  }>({
+    queryKey: ["tg-stats"],
+    queryFn: () => apiFetch("/api/telegram/stats"),
+    staleTime: 15_000,
+  });
+
   const aktifMutation = useMutation({
     mutationFn: ({ id, aktif }: { id: number; aktif: boolean }) =>
       apiFetch<User>(`/api/am/${id}/aktif`, {
@@ -667,7 +677,6 @@ export default function ManajemenAmPage() {
     return true;
   });
 
-  const telegramCount = activeAmOnly.filter(a => a.telegramConnected).length;
   const dpsCount = activeAmOnly.filter(a => a.divisi === "DPS").length;
   const dssCount = activeAmOnly.filter(a => a.divisi === "DSS").length;
   const dgsCount = activeAmOnly.filter(a => a.divisi === "DGS").length;
@@ -728,8 +737,8 @@ export default function ManajemenAmPage() {
         />
         <StatCard
           icon={<MessageSquare className="w-5 h-5 text-emerald-600" />}
-          label="Telegram Aktif" value={telegramCount}
-          sub={`dari ${activeAmOnly.length} AM aktif`}
+          label="Telegram Aktif" value={tgStats?.totalConnected ?? 0}
+          sub={`dari ${tgStats?.totalNonDgs ?? activeAmOnly.length} pengguna aktif`}
           color="bg-emerald-50 dark:bg-emerald-950/30"
         />
       </div>

@@ -539,15 +539,20 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string }> 
   ACCOUNT_MANAGER: { label: "AM",              color: "text-emerald-700", bg: "bg-emerald-100"   },
 };
 
-// ── BulkDownloadButton — generates legacy LESAVI-NIK codes CSV ─────────────────
-function BulkDownloadButton({ onRefresh }: { onRefresh: () => void }) {
+// ── BulkDownloadButton — generates LV-XXXXXX codes CSV ─────────────────
+function BulkDownloadButton({ onRefresh, duration }: { onRefresh: () => void; duration?: string }) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
 
   const handleDownload = async () => {
     setLoading(true);
     try {
-      const data = await apiFetch("/telegram/bulk-generate-codes", { method: "POST" });
+      const body: any = {};
+      if (duration) body.duration = Number(duration);
+      const data = await apiFetch("/telegram/bulk-generate-codes", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
       if (!data.results?.length) {
         toast({ title: "Semua AM sudah terhubung", description: "Tidak ada AM yang perlu dibuatkan kode verifikasi." });
         return;
@@ -667,11 +672,46 @@ function GenCodeModal({ code, link, nama, expiresAt, onClose }: {
   );
 }
 
+// ── DurationPicker ──────────────────────────────────────────────────────────────
+const DURATION_OPTIONS: { value: string; label: string }[] = [
+  { value: "30", label: "30 menit" },
+  { value: "60", label: "1 jam" },
+  { value: "120", label: "2 jam" },
+  { value: "240", label: "4 jam" },
+  { value: "480", label: "8 jam" },
+  { value: "720", label: "12 jam" },
+  { value: "1440", label: "24 jam" },
+];
+
+function DurationPicker({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+  return (
+    <div className={cn("flex items-center gap-2", className)}>
+      <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="text-[11px] px-2 py-1 border border-border rounded-lg bg-background focus:ring-1 focus:ring-primary/30 outline-none"
+      >
+        {DURATION_OPTIONS.map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function durationLabel(mins: number): string {
+  if (mins < 60) return `${mins} menit`;
+  if (mins % 60 === 0) return `${mins / 60} jam`;
+  return `${mins} menit`;
+}
+
 // ── SelectUserModal — Pick a user to generate code for ─────────────────────────
 function SelectUserModal({ users, onPick, onClose, loading }: {
-  users: any[]; onPick: (userId: number) => void; onClose: () => void; loading: boolean;
+  users: any[]; onPick: (userId: number, durationMins: number) => void; onClose: () => void; loading: boolean;
 }) {
   const [search, setSearch] = useState("");
+  const [duration, setDuration] = useState("30");
   const filtered = users.filter(u =>
     !u.telegramConnected && (
       u.nama.toLowerCase().includes(search.toLowerCase()) ||
@@ -694,10 +734,11 @@ function SelectUserModal({ users, onPick, onClose, loading }: {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="px-5 pt-3 pb-2 shrink-0">
+        <div className="flex items-center gap-2 px-5 pt-3 pb-2 border-b border-border shrink-0 flex-wrap">
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Cari nama, NIK, atau role..."
-            className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
+            className="flex-1 min-w-[160px] px-3 py-2 bg-secondary/50 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
+          <DurationPicker value={duration} onChange={setDuration} />
         </div>
         <div className="overflow-y-auto px-5 pb-5 space-y-1 flex-1">
           {filtered.length === 0 ? (
@@ -711,7 +752,7 @@ function SelectUserModal({ users, onPick, onClose, loading }: {
               const cfg = roleCfg(u.role);
               return (
                 <button key={u.id}
-                  onClick={() => onPick(u.id)}
+                  onClick={() => onPick(u.id, Number(duration))}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/50 text-left transition-colors border border-transparent hover:border-border">
                   <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0">
                     {(u.nama || "?")[0]?.toUpperCase()}
@@ -751,6 +792,7 @@ function VerifikasiSection() {
   const [showSelectUser, setShowSelectUser] = useState(false);
   const [genCodeResult, setGenCodeResult] = useState<{ code: string; link: string | null; nama: string; expiresAt: string } | null>(null);
   const [genCodeLoading, setGenCodeLoading] = useState(false);
+  const [linkDuration, setLinkDuration] = useState("30");
 
   // Fetch ALL users (all roles) for verification table
   const { data: allUsers, refetch: refetchUsers } = useQuery<any[]>({
@@ -785,9 +827,9 @@ function VerifikasiSection() {
 
   // Generate LV-XXXXXX code (permission-based, new endpoint)
   const genLVMut = useMutation({
-    mutationFn: (userId: number) => apiFetch("/telegram/access-codes", {
+    mutationFn: ({ userId, duration }: { userId: number; duration: number }) => apiFetch("/telegram/access-codes", {
       method: "POST",
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, duration }),
     }),
     onSuccess: (data: any) => {
       setGenCodeResult({ code: data.code, link: data.link, nama: data.userNama, expiresAt: data.expiresAt });
@@ -841,7 +883,10 @@ function VerifikasiSection() {
   const handleGenBulk = async () => {
     setGenBulkLoading(true);
     try {
-      const data = await apiFetch("/telegram/gen-links-bulk", { method: "POST" });
+      const data = await apiFetch("/telegram/gen-links-bulk", {
+        method: "POST",
+        body: JSON.stringify({ duration: Number(linkDuration) }),
+      });
       if (!data.botUsername) {
         toast({ title: "Bot belum dikonfigurasi", description: "Atur token bot Telegram di halaman Pengaturan.", variant: "destructive" });
         return;
@@ -880,7 +925,7 @@ function VerifikasiSection() {
       {showSelectUser && (
         <SelectUserModal
           users={allUsers || []}
-          onPick={(userId) => genLVMut.mutate(userId)}
+          onPick={(userId, duration) => genLVMut.mutate({ userId, duration })}
           onClose={() => setShowSelectUser(false)}
           loading={genLVMut.isPending}
         />
@@ -1063,6 +1108,7 @@ function VerifikasiSection() {
               <Link2 className={cn("w-3.5 h-3.5", genBulkLoading && "animate-pulse")} />
               {genBulkLoading ? "Membuat..." : "Generate Semua Link"}
             </button>
+            <DurationPicker value={linkDuration} onChange={setLinkDuration} />
             {selectedIds.size > 0 && (
               <button
                 onClick={() => unlinkAllMut.mutate([...selectedIds])}
@@ -1086,7 +1132,7 @@ function VerifikasiSection() {
                 Unlink Semua
               </button>
             )}
-            <BulkDownloadButton onRefresh={refetchUsers} />
+            <BulkDownloadButton onRefresh={refetchUsers} duration={linkDuration} />
           </div>
         </div>
 
@@ -1095,8 +1141,7 @@ function VerifikasiSection() {
           <Shield className="w-3.5 h-3.5 text-green-600 mt-0.5 shrink-0" />
           <p className="text-xs text-green-700 leading-relaxed">
             <span className="font-semibold">Kode Verifikasi (LV-XXXXXX)</span> dibuat oleh ADMIN, OFFICER, atau MANAGER
-            dan berlaku 60 menit. Gunakan untuk menghubungkan akun Telegram pengguna ke sistem.
-            Link legacy <code className="text-[11px] bg-green-100 px-1 py-0.5 rounded font-mono">LESAVI-NIK</code> juga masih didukung.
+            dan memiliki masa berlaku sesuai durasi yang dipilih. Gunakan untuk menghubungkan akun Telegram pengguna ke sistem.
           </p>
         </div>
 
@@ -1175,7 +1220,7 @@ function VerifikasiSection() {
                             {/* LV-XXXXXX code generation button */}
                             <button
                               onClick={() => {
-                                genLVMut.mutate(u.id);
+                                genLVMut.mutate({ userId: u.id, duration: Number(linkDuration) });
                               }}
                               disabled={genLVMut.isPending}
                               className="flex items-center gap-1 text-[11px] text-green-600 font-semibold hover:text-green-700 disabled:opacity-50 w-fit"
@@ -1184,8 +1229,9 @@ function VerifikasiSection() {
                               <KeyRound className="w-3 h-3" />
                               {genLVMut.isPending ? "..." : "Kode Verifikasi"}
                             </button>
+                            <DurationPicker value={linkDuration} onChange={setLinkDuration} />
                             {/* Legacy link generation */}
-                            <LegacyLinkButton user={u} botUsername={botUsername} refetch={refetchUsers} />
+                            <LegacyLinkButton user={u} botUsername={botUsername} refetch={refetchUsers} duration={linkDuration} />
                           </div>
                         )}
                       </div>
@@ -1204,8 +1250,8 @@ function VerifikasiSection() {
   );
 }
 
-// ── LegacyLinkButton — generates LESAVI-NIK legacy codes ────────────────────────
-function LegacyLinkButton({ user, botUsername, refetch }: { user: any; botUsername: string | null; refetch: () => void }) {
+// ── LegacyLinkButton — generates LV-XXXXXX deeplink codes ────────────────────────
+function LegacyLinkButton({ user, botUsername, refetch, duration }: { user: any; botUsername: string | null; refetch: () => void; duration?: string }) {
   const { toast } = useToast();
   const [magicLink, setMagicLink] = useState<string | null>(null);
   const [genLoading, setGenLoading] = useState(false);
@@ -1220,7 +1266,12 @@ function LegacyLinkButton({ user, botUsername, refetch }: { user: any; botUserna
   const handleGen = async () => {
     setGenLoading(true);
     try {
-      const data = await apiFetch(`/telegram/gen-link/${user.id}`, { method: "POST" });
+      const body: any = {};
+      if (duration) body.duration = Number(duration);
+      const data = await apiFetch(`/telegram/gen-link/${user.id}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
       if (data.link) setMagicLink(data.link);
       else toast({ title: "Bot belum dikonfigurasi", description: "Atur token bot di halaman Pengaturan.", variant: "destructive" });
     } catch {

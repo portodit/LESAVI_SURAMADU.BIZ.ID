@@ -19,6 +19,9 @@ export default function PresentationLoginPage() {
   const resendRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiryRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Preserve ?type=funnel&snapshot=142 through the login flow
+  const returnTo = typeof window !== "undefined" ? window.location.search : "";
+
   // Expiry countdown — only runs when step is "otp", clears when leaving otp step
   useEffect(() => {
     if (step !== "otp") return;
@@ -69,17 +72,17 @@ export default function PresentationLoginPage() {
     return () => { if (resendRef.current) { clearInterval(resendRef.current); resendRef.current = null; } };
   }, [resendCooldown > 0]);
 
-  // If already logged into presentation, redirect to /presentation
+  // If already logged into presentation, redirect to /presentation + preserved params
   useEffect(() => {
     // Check cookie session
     if (document.cookie.includes("pres_sid")) {
-      window.location.href = "/presentation";
+      window.location.href = "/presentation" + returnTo;
       return;
     }
     // Check localStorage presentation token
     const session = getPresentationSession();
     if (session?.presentationToken) {
-      window.location.href = "/presentation";
+      window.location.href = "/presentation" + returnTo;
       return;
     }
   }, []);
@@ -120,7 +123,8 @@ export default function PresentationLoginPage() {
       }
 
       if (data.nextStep === "TELEGRAM_LINK_REQUIRED") {
-        setLocation("/auth/telegram-link");
+        sessionStorage.setItem("pres_returnTo", returnTo);
+        setLocation(`/auth/telegram-link?returnTo=${encodeURIComponent("/presentation" + returnTo)}`);
         return;
       }
 
@@ -198,7 +202,7 @@ export default function PresentationLoginPage() {
         presentationToken: token,
       }));
 
-      window.location.href = "/presentation";
+      window.location.href = "/presentation" + returnTo;
     } catch (err: any) {
       setError(err?.message ?? "Koneksi gagal. Silakan coba lagi.");
       setResendCooldown(60);

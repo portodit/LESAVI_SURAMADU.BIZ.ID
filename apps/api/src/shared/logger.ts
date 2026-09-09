@@ -1,4 +1,5 @@
 import pino from "pino";
+import path from "path";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -13,8 +14,18 @@ export const logger = pino({
     ? {}
     : {
         transport: {
-          target: "pino-pretty",
-          options: { colorize: true },
+          targets: [
+            {
+              target: "pino-pretty",
+              options: { colorize: true },
+              level: "info",
+            },
+            {
+              target: "pino/file",
+              options: { destination: path.resolve(__dirname, "..", "..", "telegram-import.log") },
+              level: "debug",
+            },
+          ],
         },
       }),
 });

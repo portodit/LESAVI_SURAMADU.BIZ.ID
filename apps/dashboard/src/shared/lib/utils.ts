@@ -68,3 +68,54 @@ export function getStatusColor(statusWarna: string | null | undefined) {
   if (s === "merah" || s === "red") return "bg-destructive/15 text-destructive border-destructive/30";
   return "bg-muted text-muted-foreground border-border";
 }
+
+// ─── Period conversion (yyyyMM string ↔ year/month sets) ─────────────────────
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+
+export function periodToYearMonth(periodStr: string): { year: string; month: string } | null {
+  if (!periodStr || periodStr.length !== 6) return null;
+  return { year: periodStr.slice(0, 4), month: periodStr.slice(4, 6) };
+}
+
+export function periodToLabel(periodStr: string): string {
+  const { year, month } = periodToYearMonth(periodStr) ?? { year: periodStr.slice(0, 4), month: periodStr.slice(4, 6) };
+  const m = parseInt(month, 10);
+  return `${MONTHS_SHORT[m - 1] ?? month} ${year}`;
+}
+
+export function yearMonthToPeriod(year: string, month: string): string {
+  return `${year}${month}`;
+}
+
+// Convert selectedPeriodes (Set<"yyyyMM">) to year/month filter sets
+export function periodSetToYearMonth(
+  selectedPeriodes: Set<string>
+): { filterYears: Set<string>; filterMonths: Set<string> } {
+  const filterYears = new Set<string>();
+  const filterMonths = new Set<string>();
+  for (const p of selectedPeriodes) {
+    const { year, month } = periodToYearMonth(p) ?? { year: p.slice(0, 4), month: p.slice(4, 6) };
+    filterYears.add(year);
+    filterMonths.add(month);
+  }
+  return { filterYears, filterMonths };
+}
+
+// Convert year/month filter sets to Set<"yyyyMM"> periods
+export function yearMonthToPeriodSet(
+  filterYears: Set<string>,
+  filterMonths: Set<string>,
+  allPeriodes: string[]
+): Set<string> {
+  if (filterYears.size === 0) return new Set();
+  if (filterYears.size === 1 && filterMonths.size === 0) {
+    const yr = [...filterYears][0];
+    return new Set(allPeriodes.filter(p => p.startsWith(yr)));
+  }
+  return new Set(
+    allPeriodes.filter(p => {
+      const { year, month } = periodToYearMonth(p) ?? { year: p.slice(0, 4), month: p.slice(4, 6) };
+      return filterYears.has(year) && (filterMonths.size === 0 || filterMonths.has(month));
+    })
+  );
+}

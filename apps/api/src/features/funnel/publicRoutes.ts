@@ -40,7 +40,7 @@ router.get("/funnel", async (req, res): Promise<void> => {
 
   const masterAms = await db.select().from(accountManagersTable);
   const masterAmByNik = new Map(masterAms.map(m => [m.nik, m.nama]));
-  const activeNikSet = new Set(masterAms.filter(m => m.aktif && m.role === "AM" && m.nik).map(m => m.nik));
+  const activeNikSet = new Set(masterAms.filter(m => m.aktif && ["ACCOUNT_MANAGER", "AM"].includes(m.role) && m.nik).map(m => m.nik));
 
   let allLops = await db.select().from(salesFunnelTable);
 

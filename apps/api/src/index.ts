@@ -100,7 +100,7 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
-  startTelegramPoller(15000);
+  startTelegramPoller(3000);
   startGSheetsScheduler();
   startGDriveScheduler();
 });
